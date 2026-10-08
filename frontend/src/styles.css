@@ -1,0 +1,494 @@
+/* ============================================================================
+   Архитектурный реестр— глобальные стили оболочки и дашборда.
+   Значения синхронизированы с src/theme.ts (brand).
+   ========================================================================== */
+
+:root {
+  --brand-primary: #2f6bff;
+  --brand-navy: #0e1c30;
+  --brand-navy-soft: #16273f;
+  --brand-ink: #1f2a37;
+  --brand-muted: #64748b;
+  --brand-page-bg: #f4f6fa;
+  --brand-border: #eef1f6;
+  --brand-blue: #2f6bff;
+  --brand-violet: #7c5cff;
+  --brand-green: #22c55e;
+  --brand-orange: #f59e0b;
+  --brand-cyan: #06b6d4;
+  --brand-red: #ef4444;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--brand-page-bg);
+  color: var(--brand-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------- Оболочка */
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-sider {
+  overflow: auto;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  left: 0;
+}
+
+.app-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-sider::-webkit-scrollbar {
+  width: 6px;
+}
+
+.app-sider::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  color: #fff;
+}
+
+.app-brand-logo {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+
+.app-brand-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #fff;
+}
+
+.app-brand-sub {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.app-sider .ant-menu {
+  flex: 1;
+  padding-bottom: 16px;
+}
+
+.app-sider .ant-menu-inline .ant-menu-item,
+.app-sider .ant-menu-inline .ant-menu-submenu-title {
+  font-size: 13px;
+}
+
+/* --------------------------------------------------------------- Хедер */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--brand-border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.app-search {
+  flex: 1;
+  max-width: 520px;
+  background: #f4f6fa;
+  border-radius: 10px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+}
+
+.app-search .ant-select-selector {
+  background: transparent !important;
+}
+
+.app-search .ant-select-selection-placeholder {
+  color: #94a3b8;
+}
+
+.app-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-header-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  color: var(--brand-muted);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.app-header-icon:hover {
+  background: #f4f6fa;
+  color: var(--brand-ink);
+}
+
+.app-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 4px 4px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.app-user:hover {
+  background: #f4f6fa;
+}
+
+.app-user-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.app-user-role {
+  font-size: 11px;
+  color: var(--brand-muted);
+}
+
+/* --------------------------------------------------------------- Контент */
+
+.app-content {
+  padding: 20px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-crumbs {
+  margin-bottom: 2px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Заголовки страниц реестра, отрисованные через Typography.Title, приводим к стилю макета */
+.app-content h1.ant-typography,
+.app-content h4.ant-typography {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--brand-ink);
+}
+
+.page-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--brand-muted);
+}
+
+.page-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.section-card {
+  border-radius: 14px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.link-more {
+  color: var(--brand-primary);
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.link-more:hover {
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------------ KPI-карточки */
+
+.kpi-card {
+  background: #fff;
+  border: 1px solid var(--brand-border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 100%;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.kpi-card:hover {
+  box-shadow: 0 8px 24px rgba(15, 27, 48, 0.08);
+}
+
+.kpi-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  flex: 0 0 auto;
+}
+
+.kpi-body {
+  min-width: 0;
+}
+
+.kpi-title {
+  font-size: 13px;
+  color: var(--brand-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kpi-value {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--brand-ink);
+}
+
+.kpi-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-green);
+}
+
+.kpi-trend.is-down {
+  color: var(--brand-red);
+}
+
+.kpi-hint {
+  font-size: 12px;
+  color: var(--brand-muted);
+}
+
+/* -------------------------------------------------- Кольцевая диаграмма */
+
+.donut {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.donut-graphic {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.donut-graphic svg {
+  display: block;
+}
+
+.donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.donut-center-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--brand-ink);
+}
+
+.donut-center-label {
+  font-size: 12px;
+  color: var(--brand-muted);
+}
+
+.donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-width: 180px;
+}
+
+.donut-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.donut-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.donut-legend-label {
+  color: var(--brand-ink);
+}
+
+.donut-legend-value {
+  margin-left: auto;
+  color: var(--brand-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.donut-legend-empty {
+  color: var(--brand-muted);
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------ Быстрые действия */
+
+.quick-actions {
+  display: flex;
+  flex-direction: column;
+}
+
+.quick-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--brand-border);
+  cursor: pointer;
+  color: var(--brand-ink);
+}
+
+.quick-item:last-child {
+  border-bottom: none;
+}
+
+.quick-item:hover .quick-label {
+  color: var(--brand-primary);
+}
+
+.quick-item .quick-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #eff4ff;
+  color: var(--brand-primary);
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  flex: 0 0 auto;
+}
+
+.quick-label {
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.quick-arrow {
+  margin-left: auto;
+  color: #cbd5e1;
+}
+
+/* ------------------------------------------------------ Обновление данных */
+
+.updated-at {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--brand-muted);
+  font-size: 12px;
+}
+
+.updated-at strong {
+  color: var(--brand-ink);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* --------------------------------------------------- Полировка таблиц */
+
+.app-content .ant-table {
+  font-size: 13px;
+}
+
+.app-content .ant-table-thead > tr > th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.app-content .ant-table-tbody > tr > td {
+  color: var(--brand-ink);
+}
+
+.app-content .ant-table-tbody > tr.ant-table-row:hover > td {
+  cursor: pointer;
+}
+
+.app-content .ant-card {
+  border-color: var(--brand-border);
+  box-shadow: 0 1px 2px rgba(15, 27, 48, 0.03);
+}
+
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+

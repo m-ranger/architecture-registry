@@ -1,0 +1,25 @@
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: architecture-registry-postgres:2.0.0
+    container_name: architecture-registry-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: architecture_registry
+      POSTGRES_USER: registry_admin
+      POSTGRES_PASSWORD: registry_pass
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U registry_admin -d architecture_registry"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pg_data:

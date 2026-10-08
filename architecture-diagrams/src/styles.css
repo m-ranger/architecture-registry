@@ -1,0 +1,465 @@
+/* Стили модуля «Архитектурные схемы» — продолжение корпоративного стиля реестра. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  background: #f4f6fa;
+  color: #1f2a37;
+}
+
+.arch-shell {
+  min-height: 100%;
+}
+
+.arch-shell__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border-bottom: 1px solid #eef1f6;
+  padding: 0 20px;
+}
+
+.arch-shell__logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: #eef2ff;
+  color: #2f6bff;
+  font-size: 17px;
+}
+
+.arch-shell__subtitle {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.arch-shell__link {
+  font-size: 12px;
+}
+
+.arch-shell__content {
+  padding: 18px;
+}
+
+/* Страница списка схем */
+.arch-page__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.arch-card {
+  border: 1px solid #eef1f6;
+  border-radius: 14px;
+}
+
+/* Рабочее место редактора занимает весь экран */
+.arch-editor {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #f4f6fa;
+}
+
+.arch-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  background: #ffffff;
+  border-bottom: 1px solid #eef1f6;
+  min-height: 58px;
+}
+
+.arch-toolbar__title {
+  display: flex;
+  flex-direction: column;
+  max-width: 360px;
+}
+
+.arch-toolbar__meta {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.arch-editor__body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 288px 1fr 300px;
+  min-height: 0;
+}
+
+.arch-editor__side {
+  background: #fbfcfe;
+  border-right: 1px solid #eef1f6;
+  overflow: auto;
+  padding: 12px;
+}
+
+.arch-editor__side--right {
+  border-right: none;
+  border-left: 1px solid #eef1f6;
+}
+
+.arch-editor__canvas {
+  position: relative;
+  min-width: 0;
+  background: #ffffff;
+}
+
+.arch-editor__status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 14px;
+  background: #ffffff;
+  border-top: 1px solid #eef1f6;
+  font-size: 12px;
+  color: #475569;
+}
+
+.arch-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.arch-canvas__hint {
+  font-size: 11px;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #eef1f6;
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+/* Узлы C4 */
+.arch-node {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1.4px solid #c7d3e8;
+  border-radius: 12px;
+  background: #ffffff;
+  font-size: 12px;
+  color: #1f2a37;
+  overflow: hidden;
+}
+
+.arch-node--primary {
+  background: #e8efff;
+}
+
+.arch-node--external {
+  background: #f8fafc;
+}
+
+.arch-node--infrastructure {
+  background: #fff7ed;
+}
+
+.arch-node--annotation {
+  background: #fffbeb;
+}
+
+.arch-node--selected {
+  border-width: 2px;
+}
+
+.arch-node__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+}
+
+.arch-node__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arch-node__tech {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 10px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arch-node__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.arch-node__code {
+  font-size: 10px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arch-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* Границы контуров */
+.arch-boundary {
+  width: 100%;
+  height: 100%;
+  border: 1.4px dashed #94a3b8;
+  border-radius: 14px;
+  background: rgba(148, 163, 184, 0.07);
+  position: relative;
+}
+
+.arch-boundary__label {
+  position: absolute;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.arch-boundary__code {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #64748b;
+}
+
+/* Связи */
+.arch-edge__label {
+  position: absolute;
+  pointer-events: all;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #eef1f6;
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: #334155;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.25;
+}
+
+.arch-edge__label em {
+  font-style: normal;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  color: #64748b;
+}
+
+/* Палитра */
+.arch-palette__section {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #eef1f6;
+}
+
+.arch-palette__section--compact {
+  border-bottom: none;
+}
+
+.arch-palette__title {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.arch-palette__results {
+  margin-top: 10px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.arch-palette__loading {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.arch-palette__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  cursor: default;
+}
+
+.arch-palette__item:hover {
+  background: #f2f5fb;
+}
+
+.arch-palette__item-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.arch-palette__item-name {
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arch-palette__item-meta {
+  font-size: 10px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+}
+
+.arch-palette__add {
+  color: #2f6bff;
+  cursor: pointer;
+}
+
+.arch-palette__add--disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.arch-palette__route {
+  display: none;
+}
+
+.arch-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.arch-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12px;
+}
+
+.arch-legend__icon {
+  display: inline-flex;
+}
+
+.arch-legend__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arch-legend__hint {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.arch-legend__action {
+  margin-top: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px dashed #c7d3e8;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #2f6bff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.arch-legend__action:disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+/* Панель свойств и валидация */
+.arch-props__title {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.arch-props__desc .ant-descriptions-item-label {
+  width: 92px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.arch-props__field {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.arch-props__field > span {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.arch-props__field .ant-input-number,
+.arch-props__field .ant-select {
+  width: 100%;
+}
+
+.arch-props__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 10px;
+}
+
+.arch-validation__list {
+  margin-top: 12px;
+}
+
+.arch-validation__item {
+  align-items: flex-start !important;
+  cursor: pointer;
+  padding: 8px 0 !important;
+}
+
+.arch-validation__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
