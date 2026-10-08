@@ -6,6 +6,7 @@ import type {
   DiagramMeta,
   DiagramPayload,
   MetaInfo,
+  ScopeFlowsReport,
   ValidationResult,
   VersionItem,
 } from '../model/diagramTypes'
@@ -62,6 +63,12 @@ export const diagramsApi = {
   /** mode=REBUILD перестраивает layout, mode=SYNC сохраняет ручные координаты (ТЗ §13). */
   generate: (diagramId: string, mode: 'REBUILD' | 'SYNC' = 'SYNC') =>
     api.post<DiagramPayload>(`/diagrams/${id(diagramId)}/generate`, { mode }),
+
+  /**
+   * Потоки области схемы (панель «Потоки области»): все потоки проекта или ИС,
+   * признак попадания в срез и связи схемы, образованные каждым потоком.
+   */
+  flows: (diagramId: string) => api.get<ScopeFlowsReport>(`/diagrams/${id(diagramId)}/flows`),
 
   /**
    * Срез схемы развертывания по среде (ТЗ §10.3): граф перестраивается по

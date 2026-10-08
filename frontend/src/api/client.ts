@@ -38,20 +38,24 @@ export const camelize = <T>(value: unknown): T => convertKeys(value, toCamel) as
 export const snakify = (value: unknown): unknown => convertKeys(value, toSnake)
 
 /**
- * Base fetch wrapper with error handling
+ * Base fetch wrapper with error handling.
+ *
+ * Заголовки собираются ПОСЛЕ spread'а `options` и через `Headers`: если положить
+ * `headers` до `...options`, вложенный `options.headers` затирает объединённый
+ * объект, `Content-Type` теряется, и fetch отправляет строковое тело как
+ * `text/plain;charset=UTF-8`. Тогда `express.json()` на сервере не разбирает
+ * payload — POST/PUT приходят с пустым телом (`req.body = {}`).
  */
 async function apiFetch<T>(base: string, endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${base}${endpoint}`
+  const { headers, ...rest } = options ?? {}
+  const requestHeaders = new Headers(headers)
+  // Реестр и модуль схем принимают тело в формате JSON.
+  if (!requestHeaders.has('Content-Type')) requestHeaders.set('Content-Type', 'application/json')
 
   let response: Response
   try {
-    response = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
-      ...options,
-    })
+    response = await fetch(url, { ...rest, headers: requestHeaders })
   } catch (err) {
     throw {
       message: err instanceof Error ? err.message : 'Network error',

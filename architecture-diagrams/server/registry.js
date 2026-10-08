@@ -354,6 +354,15 @@ export const ADDRESS_ROLE_PRIORITY = [
   'OTHER',
 ];
 
+/** Среда по идентификатору — код и наименование для подписи среза схемы. */
+export async function getEnvironment(id) {
+  const { rows } = await pool.query(
+    `SELECT id, code, name, criticality, status, description FROM environment WHERE id = $1`,
+    [id],
+  );
+  return rows[0] || null;
+}
+
 /** Список сред эксплуатации — для выбора среза схемы развертывания. */
 export async function listEnvironments(query = '', limit = 50) {
   const { rows } = await pool.query(

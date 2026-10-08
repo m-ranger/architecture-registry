@@ -9,6 +9,7 @@ import pool from './db.js';
 import { migrate } from './migrate.js';
 import * as diagrams from './diagrams.js';
 import { generateGraph } from './graph.js';
+import { describeScopeFlows } from './scopeFlows.js';
 import { validateGraph } from './validate.js';
 import { exportDiagram, EXPORT_FORMATS } from './exporter.js';
 import {
@@ -217,6 +218,21 @@ app.delete(
     res.json(await diagrams.deleteDiagram(req.params.id));
   }),
 );
+
+/**
+ * Потоки области схемы — данные панели «Потоки области» в редакторе.
+ * Связи на canvas строятся только между размещениями выбранного среза по среде,
+ * поэтому панель дополнительно показывает потоки области, не отражённые на
+ * схеме: их статус, размещения сторон в срезе и переход в карточку реестра.
+ */
+app.get(
+  '/api/diagrams/:id/flows',
+  requirePermission('view'),
+  asyncRoute(async (req, res) => {
+    const { diagram, graph } = await diagrams.getDiagramGraph(req.params.id);
+    res.json(await describeScopeFlows(diagram, graph));
+  }),
+)
 
 app.post(
   '/api/diagrams/:id/generate',

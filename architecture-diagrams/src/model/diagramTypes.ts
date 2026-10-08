@@ -190,6 +190,74 @@ export interface MetaInfo {
   permissions: { view: boolean; edit: boolean; publish: boolean; export: boolean }
 }
 
+/** Размещение стороны потока в срезе схемы развертывания (панель «Потоки области»). */
+export interface ScopeFlowPlacement {
+  deploymentId: string
+  instanceId: string
+  instanceName: string
+  environmentId: string
+  environmentCode: string
+  environmentName: string
+  role: string | null
+  state: string
+  nodeType: 'server' | 'cluster'
+  nodeName: string | null
+  /** Предпочтительный адрес узла размещения (network_interface). */
+  address: string | null
+  addressRole: string | null
+  addressCount: number
+  addressText: string
+}
+
+/** Сторона потока области: модуль, ИС и его размещения в срезе. */
+export interface ScopeFlowSide {
+  moduleId: string
+  moduleCode: string
+  moduleName: string
+  systemId: string | null
+  systemCode: string | null
+  systemName: string | null
+  placements: ScopeFlowPlacement[]
+}
+
+/**
+ * Поток области схемы: связь реестра, её отражение на схеме и причина, по
+ * которой поток на схеме не отражён (контрагент не развернут в срезе).
+ * Связи на canvas строятся только между размещениями выбранного среза.
+ */
+export interface ScopeFlow {
+  id: string
+  code: string
+  name: string
+  status: string
+  technology: string | null
+  protocolCode: string | null
+  sourcePort: number | null
+  targetPort: number | null
+  source: ScopeFlowSide
+  target: ScopeFlowSide
+  /** Размещения обеих сторон есть в срезе — поток попал на схему. */
+  inSlice: boolean
+  /** Идентификаторы связей графа, образованных этим потоком (для фокуса). */
+  edgeIds: string[]
+  reason: string | null
+}
+
+/** Ответ API модуля: потоки области схемы и их срезовая сводка. */
+export interface ScopeFlowsReport {
+  scope: {
+    type: string
+    id: string | null
+    name: string | null
+    code: string | null
+    environmentId: string | null
+    environmentCode: string | null
+    environmentName: string | null
+  }
+  flows: ScopeFlow[]
+  summary: { total: number; inSlice: number; outOfSlice: number; onCanvas: number }
+}
+
 export const isBoundary = (c4Type: string) =>
   c4Type === C4_TYPE.SYSTEM_BOUNDARY || c4Type === C4_TYPE.ENVIRONMENT_BOUNDARY
 

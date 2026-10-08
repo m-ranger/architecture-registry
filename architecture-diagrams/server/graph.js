@@ -55,6 +55,39 @@ const SIZE = {
 export const nodeKey = (type, id) => `${type}:${id}`;
 export const edgeKey = (flowId) => `information_flow:${flowId}`;
 
+/** Идентификатор связи схемы развертывания между размещениями сторон потока. */
+export const deploymentEdgeId = (sourceDeploymentId, targetDeploymentId) =>
+  `dep:${sourceDeploymentId}->${targetDeploymentId}`;
+
+/**
+ * Пары размещений, которые образует каждый поток области в срезе: размещение
+ * источника → размещение приёмника. Тот же алгоритм использует генератор схемы
+ * развертывания, поэтому идентификаторы связей совпадают, и панель
+ * «Потоки области» находит связь на canvas.
+ */
+export function flowDeploymentEdges(deployments, flows) {
+  const placements = new Map();
+  for (const deployment of deployments) {
+    if (!placements.has(deployment.module_id)) placements.set(deployment.module_id, []);
+    placements.get(deployment.module_id).push(deployment);
+  }
+
+  const result = new Map();
+  for (const flow of flows) {
+    const sources = placements.get(flow.source_id) || [];
+    const targets = placements.get(flow.target_id) || [];
+    const ids = new Set();
+    for (const source of sources) {
+      for (const target of targets) {
+        if (source.id === target.id) continue;
+        ids.add(deploymentEdgeId(source.id, target.id));
+      }
+    }
+    if (ids.size > 0) result.set(flow.id, Array.from(ids));
+  }
+  return result;
+}
+
 function makeNode({ id, registryRef, c4Type, name, technology, description, parent = null, style = {} }) {
   return {
     id,
@@ -82,7 +115,7 @@ function makeEdge({ id, source, target, registryRef = null, label, technology })
 }
 
 /** Единая технология связи из протокола и порта (ТЗ §10.2). */
-function flowTechnology(flow) {
+export function flowTechnology(flow) {
   const port = flow.target_port || flow.default_port;
   const base = flow.protocol_code || flow.protocol_name || '';
   return port ? `${base}/${port}` : base;
@@ -144,8 +177,9 @@ function addressPairText(sourceAddresses, sourcePort, targetAddresses, targetPor
 /**
  * Индекс адресов узлов размещения: server:<id> / cluster:<id> -> список адресов.
  * Узел, у которого адресов нет, в индекс не попадает — это фиксирует валидация.
+ * Экспортируется для чтения состава потоков области (server/scopeFlows.js).
  */
-async function loadAddresses(deployments, environmentId) {
+export async function loadAddresses(deployments, environmentId) {
   const serverIds = [...new Set(deployments.map((d) => d.server_id).filter(Boolean))];
   const clusterIds = [...new Set(deployments.map((d) => d.cluster_id).filter(Boolean))];
   const rows = await getDeploymentAddresses({ serverIds, clusterIds, environmentId });
@@ -613,7 +647,7 @@ async function generateDeployment(ctx) {
         if (source.key === target.key) continue;
         const key = `${sourceDeploymentId}->${targetDeploymentId}`;
         const item = aggregated.get(key) || {
-          id: `dep:${key}`,
+          id: deploymentEdgeId(sourceDeploymentId, targetDeploymentId),
           source: source.key,
           target: target.key,
           count: 0,

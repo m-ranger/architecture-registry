@@ -245,3 +245,100 @@ export interface DiagramListItem {
   updatedAt?: string
   updatedBy?: string
 }
+
+/**
+ * Сторона информационного потока в отчёте «Сетевые взаимодействия»:
+ * модуль, экземпляр, среда, узел размещения и адрес.
+ */
+export interface NetworkInteractionSide {
+  isCode: string
+  isName: string
+  moduleCode: string
+  moduleName: string
+  /** Экземпляр модуля (module_instance) */
+  instanceName?: string | null
+  /** Среда экземпляра (module_instance.environment_id) */
+  envCode?: string | null
+  envName?: string | null
+  /** Узел размещения: сервер или кластер (module_deployment.server_id/cluster_id) */
+  ownerType?: 'server' | 'cluster' | null
+  ownerName?: string | null
+  /** Зарегистрированный адрес узла (network_interface.ip_address) */
+  address?: string | null
+  addressRole?: string | null
+  addressName?: string | null
+  segmentCode?: string | null
+  zoneCode?: string | null
+}
+
+/**
+ * Строка отчёта «Сетевые взаимодействия»: информационный поток в разрезе
+ * «с какого адреса на какой». Строка — сочетание размещений источника и
+ * получателя; среда, узел и адрес стороны пусты, если экземпляр, размещение или
+ * адрес не заведены в реестре (GET /api/reports/network-interactions).
+ */
+export interface NetworkInteractionRow {
+  flowCode: string
+  flowName: string
+  flowStatus: string
+  flowDescription?: string | null
+  protocolCode: string
+  protocolName: string
+  protocolTransport?: string | null
+  /** Порт стороны: явный порт потока либо порт протокола по умолчанию */
+  sourcePort?: number | null
+  targetPort?: number | null
+  /** Коды проектов, в рамках которых задействован поток */
+  projectCodes?: string | null
+  sourceIsId: string
+  sourceIsCode: string
+  sourceIsName: string
+  sourceModuleId: string
+  sourceModuleCode: string
+  sourceModuleName: string
+  sourceInstanceName?: string | null
+  sourceEnvCode?: string | null
+  sourceEnvName?: string | null
+  sourceOwnerType?: 'server' | 'cluster' | null
+  sourceOwnerName?: string | null
+  sourceAddress?: string | null
+  sourceAddressRole?: string | null
+  sourceAddressName?: string | null
+  sourceSegmentCode?: string | null
+  sourceZoneCode?: string | null
+  targetIsId: string
+  targetIsCode: string
+  targetIsName: string
+  targetModuleId: string
+  targetModuleCode: string
+  targetModuleName: string
+  targetInstanceName?: string | null
+  targetEnvCode?: string | null
+  targetEnvName?: string | null
+  targetOwnerType?: 'server' | 'cluster' | null
+  targetOwnerName?: string | null
+  targetAddress?: string | null
+  targetAddressRole?: string | null
+  targetAddressName?: string | null
+  targetSegmentCode?: string | null
+  targetZoneCode?: string | null
+}
+
+/** Вариант фильтра отчёта: сторона кодируется строкой addr:/node:/module:/instance:/none */
+export interface NetworkInteractionOption {
+  value: string
+  label: string
+}
+
+export interface NetworkInteractionReport {
+  /** Количество строк в текущей выборке */
+  total: number
+  rows: NetworkInteractionRow[]
+  options: {
+    sources: NetworkInteractionOption[]
+    targets: NetworkInteractionOption[]
+    environments: NetworkInteractionOption[]
+    projects: NetworkInteractionOption[]
+    statuses: NetworkInteractionOption[]
+  }
+}

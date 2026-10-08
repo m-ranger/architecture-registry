@@ -19,6 +19,7 @@ import type {
   AuditEntry,
   DiagramListItem,
   DiagramType,
+  NetworkInteractionReport,
 } from '../types'
 
 // Entity API modules — GET /api/{endpoint} for list operations
@@ -324,6 +325,56 @@ function auditQuery(filters?: AuditFilters): string {
 export const auditApi = {
   getAll: (filters?: AuditFilters) => api.get<AuditEntry[]>(`/audit${auditQuery(filters)}`),
   getById: (id: string) => api.get<AuditEntry>(`/audit/${id}`),
+};
+
+
+// ---------------------------------------------------------------------------
+// Раздел «Отчеты»: отчёт «Сетевые взаимодействия».
+// Информационные потоки в разрезе «с какого адреса на какой»: адрес стороны
+// берётся из размещения экземпляра модуля (сервер/кластер → network_interface).
+// ---------------------------------------------------------------------------
+
+/**
+ * Фильтры отчёта. Сторона потока кодируется строкой:
+ * `addr:<ip>` | `node:<узел>` | `instance:<экземпляр>` | `module:<ИС/КОД>` | `none`
+ * (none — сторона без зарегистрированного адреса).
+ */
+export interface NetworkInteractionFilters {
+  /** Источник потока: адрес, узел, экземпляр или модуль */
+  source?: string
+  /** Получатель потока: адрес, узел, экземпляр или модуль */
+  target?: string
+  /** Код среды (PROD, TEST…) — учитываются обе стороны потока */
+  environment?: string
+  /** Состояния потока; по умолчанию backend берёт ACTIVE и PLANNED */
+  statuses?: string[]
+  /** Код проекта: потоки, задействованные в проекте */
+  project?: string
+  /** Поиск по коду и наименованию потока */
+  q?: string
+}
+
+/** Query-строка отчёта: имена параметров совпадают с backend отчётов. */
+function reportQuery(filters?: NetworkInteractionFilters): string {
+  if (!filters) return ''
+  const params = new URLSearchParams()
+  if (filters.source) params.set('source', filters.source)
+  if (filters.target) params.set('target', filters.target)
+  if (filters.environment) params.set('environment', filters.environment)
+  if (filters.project) params.set('project', filters.project)
+  if (filters.q) params.set('q', filters.q)
+  if (filters.statuses && filters.statuses.length > 0) params.set('statuses', filters.statuses.join(','))
+  const qs = params.toString()
+  return qs ? `?${qs}` : ''
+}
+
+export const reportsApi = {
+  /**
+   * Отчёт «Сетевые взаимодействия»: строки «с какого адреса на какой»,
+   * варианты фильтров источника и получателя.
+   */
+  networkInteractions: (filters?: NetworkInteractionFilters) =>
+    api.get<NetworkInteractionReport>(`/reports/network-interactions${reportQuery(filters)}`),
 }
 
 

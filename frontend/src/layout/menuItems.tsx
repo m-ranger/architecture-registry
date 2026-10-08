@@ -3,7 +3,7 @@ import {
   CloudServerOutlined, BranchesOutlined, ApartmentOutlined, SafetyCertificateOutlined,
   ShareAltOutlined, WifiOutlined, ApiOutlined, BookOutlined, FileTextOutlined,
   SettingOutlined, NodeIndexOutlined, GlobalOutlined, PartitionOutlined, ProjectOutlined,
-  FolderOpenOutlined,
+  FolderOpenOutlined, TableOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 
@@ -46,7 +46,15 @@ export const menuItems: MenuProps['items'] = [
       { key: '/zones', icon: <SafetyCertificateOutlined />, label: 'Сетевые зоны' },
     ],
   },
-  { key: '/matrix', icon: <FileTextOutlined />, label: 'Отчеты' },
+  {
+    key: 'reports',
+    icon: <FileTextOutlined />,
+    label: 'Отчеты',
+    children: [
+      { key: '/matrix', icon: <TableOutlined />, label: 'Матрица информационных потоков' },
+      { key: '/network-interactions', icon: <ApiOutlined />, label: 'Сетевые взаимодействия' },
+    ],
+  },
   { key: '/audit', icon: <SettingOutlined />, label: 'Настройки' },
 ]
 
@@ -69,7 +77,8 @@ export const pageMeta: Record<string, { section?: string; title: string }> = {
   '/environments': { section: 'Справочники', title: 'Среды' },
   '/protocols': { section: 'Справочники', title: 'Протоколы' },
   '/zones': { section: 'Справочники', title: 'Сетевые зоны' },
-  '/matrix': { title: 'Отчеты' },
+  '/matrix': { section: 'Отчеты', title: 'Матрица информационных потоков' },
+  '/network-interactions': { section: 'Отчеты', title: 'Сетевые взаимодействия' },
   '/audit': { title: 'Настройки' },
 }
 
@@ -80,6 +89,9 @@ export function parentGroups(pathname: string): string[] {
   }
   if (['/environments', '/protocols', '/zones'].includes(pathname)) {
     return ['refs']
+  }
+  if (['/matrix', '/network-interactions'].includes(pathname)) {
+    return ['reports']
   }
   return []
 }

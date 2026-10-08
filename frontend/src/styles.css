@@ -492,3 +492,30 @@ body {
   flex-wrap: wrap;
 }
 
+/* --------------------------------- Отчёт «Сетевые взаимодействия» (Отчеты) */
+
+.net-interactions__side {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.net-interactions__side-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.net-interactions__side-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.net-interactions__muted {
+  color: var(--brand-muted, #94a3b8);
+  font-size: 11px;
+}
+

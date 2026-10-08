@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, Drawer, Skeleton, Space, Tag, Typography, message } from 'antd'
-import { AlertOutlined } from '@ant-design/icons'
+import { Badge, Button, Drawer, Skeleton, Space, Tag, Typography, message } from 'antd'
+import { AlertOutlined, PartitionOutlined } from '@ant-design/icons'
 import { diagramsApi } from '../api/diagramsApi'
 import { registryApi, type EnvironmentOption } from '../api/registryApi'
 import { runExport } from '../export/exportService'
@@ -11,6 +11,7 @@ import { DiagramToolbar } from '../editor/DiagramToolbar'
 import { Palette } from '../editor/Palette'
 import { PropertiesPanel } from '../editor/PropertiesPanel'
 import { ValidationPanel } from '../editor/ValidationPanel'
+import { FlowsPanel } from '../editor/FlowsPanel'
 import { buildIssueIndex, validateDiagram } from '../validation/diagramValidator'
 import { localLayeredLayout, nextFreePosition } from '../layout/layoutService'
 import { makeAnnotationNode, makeRegistryNode, type SearchItem } from '../model/registryRefs'
@@ -20,6 +21,7 @@ import type {
   ArchNode,
   DiagramMeta,
   RegistryRef,
+  ScopeFlowsReport,
   ValidationIssue,
   ValidationResult,
   VersionItem,
@@ -93,6 +95,10 @@ export function DiagramEditorPage() {
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null)
   const [validationOpen, setValidationOpen] = useState(false)
+  // Потоки области схемы: панель показывает и потоки вне среза (см. FR-002).
+  const [scopeFlows, setScopeFlows] = useState<ScopeFlowsReport | null>(null)
+  const [scopeFlowsLoading, setScopeFlowsLoading] = useState(false)
+  const [scopeFlowsOpen, setScopeFlowsOpen] = useState(false)
   const [history, setHistory] = useState<ArchGraph[]>([])
   const [future, setFuture] = useState<ArchGraph[]>([])
   const [permissions, setPermissions] = useState<Permissions>({
@@ -113,15 +119,31 @@ export function DiagramEditorPage() {
     }
   }, [id])
 
+  /**
+   * Потоки области схемы (панель «Потоки области»): список потоков проекта или ИС
+   * с отметкой попадания в срез и связями схемы, образованными каждым потоком.
+   */
+  const refreshScopeFlows = useCallback(async () => {
+    if (!id) return
+    setScopeFlowsLoading(true)
+    try {
+      setScopeFlows(await diagramsApi.flows(id))
+    } catch {
+      setScopeFlows(null)
+    } finally {
+      setScopeFlowsLoading(false)
+    }
+  }, [id])
+
   useEffect(() => {
     void (async () => {
       const payload = await load()
       if (payload) {
         setValidation(validateDiagram(payload.graph))
-        await refreshVersions()
+        await Promise.all([refreshVersions(), refreshScopeFlows()])
       }
     })()
-  }, [load, refreshVersions])
+  }, [load, refreshVersions, refreshScopeFlows])
 
   // RBAC приходит с backend: UI лишь скрывает недоступные операции (ТЗ §16).
   useEffect(() => {
@@ -209,6 +231,7 @@ export function DiagramEditorPage() {
     try {
       const payload = await diagramsApi.generate(meta.id, mode)
       applyPayload(payload)
+      await refreshScopeFlows()
       message.success(mode === 'REBUILD' ? 'Схема перестроена' : 'Схема синхронизирована с реестром')
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Не удалось выполнить генерацию')
@@ -227,6 +250,7 @@ export function DiagramEditorPage() {
     try {
       const payload = await diagramsApi.patchSlice(meta.id, environmentId)
       applyPayload(payload)
+      await refreshScopeFlows()
       const code = environments.find((environment) => environment.id === environmentId)?.code
       message.success(
         environmentId
@@ -429,6 +453,14 @@ export function DiagramEditorPage() {
     setFocusRequest({ key: Date.now(), nodeId: issue.nodeId, edgeId: issue.edgeId })
   }
 
+  /** Панель «Потоки области»: показать связь потока на схеме и уйти к карточке. */
+  const handleFocusScopeEdge = (edgeId: string) => {
+    setSelectedNodeId(null)
+    setSelectedEdgeId(edgeId)
+    setFocusRequest({ key: Date.now(), nodeId: null, edgeId })
+    setScopeFlowsOpen(false)
+  }
+
   // Горячие клавиши: Ctrl+S, Ctrl+Z, Ctrl+Y (ТЗ §11).
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -545,6 +577,11 @@ export function DiagramEditorPage() {
             {graph.nodes.filter((node) => !isBoundary(node.c4Type)).length} узлов / {graph.edges.length} связей
           </span>
           <span>контуров: {boundaryCount}</span>
+          {scopeFlows ? (
+            <Tag color={scopeFlows.summary.outOfSlice > 0 ? 'orange' : 'blue'}>
+              потоки области: {scopeFlows.summary.total} · на схеме: {scopeFlows.summary.onCanvas}
+            </Tag>
+          ) : null}
           {validation ? (
             <Tag color={validation.summary.errors ? 'red' : validation.summary.warnings ? 'orange' : 'green'}>
               ERROR {validation.summary.errors} · WARNING {validation.summary.warnings} · INFO{' '}
@@ -555,9 +592,16 @@ export function DiagramEditorPage() {
             роль: {canEdit ? 'редактирование' : 'только просмотр'}
           </Typography.Text>
         </Space>
-        <Button size="small" icon={<AlertOutlined />} onClick={() => setValidationOpen(true)}>
-          Валидация
-        </Button>
+        <Space size={8}>
+          <Badge count={scopeFlows?.summary.outOfSlice ?? 0} size="small" offset={[-4, 2]}>
+            <Button size="small" icon={<PartitionOutlined />} onClick={() => setScopeFlowsOpen(true)}>
+              Потоки области
+            </Button>
+          </Badge>
+          <Button size="small" icon={<AlertOutlined />} onClick={() => setValidationOpen(true)}>
+            Валидация
+          </Button>
+        </Space>
       </div>
 
       <Drawer
@@ -567,6 +611,20 @@ export function DiagramEditorPage() {
         onClose={() => setValidationOpen(false)}
       >
         <ValidationPanel result={validation} onSelect={handleSelectIssue} />
+      </Drawer>
+
+      <Drawer
+        title="Потоки области схемы"
+        width={660}
+        open={scopeFlowsOpen}
+        onClose={() => setScopeFlowsOpen(false)}
+      >
+        <FlowsPanel
+          report={scopeFlows}
+          loading={scopeFlowsLoading}
+          onFocusEdge={handleFocusScopeEdge}
+          onOpenRegistry={(flowId) => handleOpenRegistry({ type: 'information_flow', id: flowId })}
+        />
       </Drawer>
     </div>
   )

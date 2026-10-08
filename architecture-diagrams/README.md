@@ -30,8 +30,8 @@
 | §7, §8 Модель данных | `server/schema.sql`: `architecture_diagram`, `architecture_diagram_element`, `architecture_diagram_relationship`, `diagram_version` |
 | §9 FR-001…FR-018 | создание, автогенерация, редактирование, registry refs, потоки, поиск, аннотации, фильтры типа, layout, атомарное сохранение, версии, публикация, экспорт, навигация в реестр, валидация, RBAC, audit-поля, sync |
 | §10 Правила генерации | три генератора: System Context (агрегация между ИС), Container (модули ИС + внешние ИС), Deployment (контуры → узлы → экземпляры) |
-| §11 UI/UX | верхний тулбар, левая палитра и поиск реестра, canvas React Flow, правая панель свойств, нижняя строка статуса, `Ctrl+S / Delete / Ctrl+Z / Ctrl+Y`, мультивыбор |
-| §12 API | `GET/POST /api/diagrams`, `GET/PUT/DELETE /api/diagrams/{id}`, `/generate`, `/validate`, `/publish`, `/versions`, `/versions/{no}`, `/export`, `/api/registry/*` |
+| §11 UI/UX | верхний тулбар, левая палитра и поиск реестра, canvas React Flow, правая панель свойств, нижняя строка статуса, панель «Потоки области», `Ctrl+S / Delete / Ctrl+Z / Ctrl+Y`, мультивыбор |
+| §12 API | `GET/POST /api/diagrams`, `GET/PUT/DELETE /api/diagrams/{id}`, `/generate`, `/flows`, `/validate`, `/publish`, `/versions`, `/versions/{no}`, `/export`, `/api/registry/*` |
 | §13 Автогенерация и sync | `mode=REBUILD` (перестраивает layout) и `mode=SYNC` (сохраняет ручные координаты) |
 | §14 Раскладка | `server/layout.js` — слоистый layout; локальная раскладка на клиенте (`src/layout/layoutService.ts`); ручные координаты не перезаписываются без явного действия |
 | §15 Экспорт | `server/exporter.js` (SVG, PlantUML, Mermaid, JSON) + `src/export/exportService.ts` (PNG/PDF из того же серверного SVG) |
@@ -226,4 +226,47 @@ curl -X PATCH http://localhost:8082/api/diagrams/ARCH-PRJ-A24-8394-DEPLOY-PROD/s
 размещения в одной и той же среде (`module_deployment` + `module_instance.environment_id`)
 и у узлов размещения должны быть заведены адреса (`network_interface` с владельцем
 `server_id` или `cluster_id`).
+
+### Панель «Потоки области»
+
+Связи на canvas строятся только между размещениями выбранного среза, поэтому поток,
+у которого контрагент не развернут в среде, на схеме не отображается. Чтобы такие
+потоки не терялись, в редакторе есть панель **«Потоки области»** (кнопка в строке
+статуса, счётчик — число потоков вне среза):
+
+* `GET /api/diagrams/{id}/flows` — `server/scopeFlows.js` возвращает все потоки области
+  схемы (проекта или информационной системы) с признаком попадания в срез;
+* для каждой стороны показываются модуль, ИС, экземпляр, среда, узел размещения и
+  адрес (`host(network_interface.ip_address)`); если размещения или адреса нет —
+  сторона помечается «нет размещений в срезе» / «адрес не зарегистрирован»;
+* `edgeIds` — идентификаторы связей графа, образованных потоком (`dep:{размещение
+  источника}->{размещение приёмника}`), кнопка «Показать» фокусирует связь на canvas;
+* `reason` — причина, по которой поток не отражён на схеме («Контрагент не развернут в
+  среде PROD: NFS/NFS», «Ни одна сторона не развернута в среде PROD», «Связь удалена
+  со схемы»); кнопка «Реестр» открывает карточку потока в основном приложении;
+* идентификаторы связей считает та же функция `flowDeploymentEdges` (`server/graph.js`),
+  что и генератор схемы развертывания, поэтому панель и canvas всегда согласованы.
+
+```bash
+# Потоки области схемы: что попало в срез, что осталось вне него
+curl "http://localhost:8082/api/diagrams/ARCH-PRJ-A24-8394-DEPLOY-PROD/flows"
+```
+
+Пример ответа для проекта A24-8394 со срезом PROD (в реестре развернут только
+`runner`, поэтому `inSlice = false`, а причина указана у каждого потока):
+
+```json
+{
+  "scope": { "type": "project", "code": "A24-8394", "environmentCode": "PROD" },
+  "summary": { "total": 4, "inSlice": 0, "outOfSlice": 4, "onCanvas": 0 },
+  "flows": [
+    { "code": "NFS-3", "inSlice": false, "edgeIds": [],
+      "reason": "Контрагент не развернут в среде PROD: CRYPT/CRYPT1" }
+  ]
+}
+```
+
+Отчёт «Сетевые взаимодействия» (раздел «Отчеты» основного приложения) отвечает на
+тот же вопрос в табличном виде: «с какого адреса на какой» по всем потокам реестра
+(`GET /api/reports/network-interactions`, см. `docs/reports-network-interactions-v1.0.md`).
 

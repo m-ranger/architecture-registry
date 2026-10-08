@@ -22,6 +22,7 @@ import flowsRouter from './routes/flows.js';
 import projectsRouter from './routes/projects.js';
 import auditRouter from './routes/audit.js';
 import viewsRouter from './routes/views.js';
+import reportsRouter from './routes/reports.js';
 
 dotenv.config();
 
@@ -64,6 +65,8 @@ app.use('/api/flows', flowsRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/audit', auditRouter);
 app.use('/api/views', viewsRouter);
+// Раздел «Отчеты»: сетевые взаимодействия «с какого адреса на какой»
+app.use('/api/reports', reportsRouter);
 
 // Error handler
 app.use((err, req, res, next) => {

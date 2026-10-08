@@ -21,6 +21,7 @@ import ProjectsPage from './pages/ProjectsPage'
 import FlowsPage from './pages/FlowsPage'
 import DiagramsPage from './pages/DiagramsPage'
 import MatrixPage from './pages/MatrixPage'
+import NetworkInteractionsPage from './pages/NetworkInteractionsPage'
 import AuditPage from './pages/AuditPage'
 
 export default function App() {
@@ -48,6 +49,7 @@ export default function App() {
               <Route path='/flows' element={<FlowsPage />} />
               <Route path='/diagrams' element={<DiagramsPage />} />
               <Route path='/matrix' element={<MatrixPage />} />
+              <Route path='/network-interactions' element={<NetworkInteractionsPage />} />
               <Route path='/audit' element={<AuditPage />} />
               <Route path='*' element={<Navigate to='/' replace />} />
             </Route>

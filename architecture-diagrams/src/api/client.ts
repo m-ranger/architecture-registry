@@ -33,15 +33,24 @@ function camelizeValue(value: unknown): unknown {
 
 export const camelize = <T>(value: unknown): T => camelizeValue(value) as T
 
+/**
+ * Обёртка над fetch: ошибки приводятся к ApiError, ответы — к camelCase.
+ *
+ * Заголовки собираются ПОСЛЕ spread'а `options` и через `Headers`: иначе
+ * вложенный `options.headers` затирает объединённый объект, `Content-Type`
+ * теряется и fetch отправляет строковое тело как `text/plain;charset=UTF-8`
+ * (тогда `express.json()` не разбирает payload).
+ */
 async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`
+  const { headers, ...rest } = options ?? {}
+  const requestHeaders = new Headers(headers)
+  // API модуля принимает тело в формате JSON.
+  if (!requestHeaders.has('Content-Type')) requestHeaders.set('Content-Type', 'application/json')
 
   let response: Response
   try {
-    response = await fetch(url, {
-      headers: { 'Content-Type': 'application/json', ...options?.headers },
-      ...options,
-    })
+    response = await fetch(url, { ...rest, headers: requestHeaders })
   } catch (err) {
     throw { message: err instanceof Error ? err.message : 'Сеть недоступна', status: 0 } as ApiError
   }
