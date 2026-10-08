@@ -26,6 +26,9 @@ const C4_EXPECTED = {
   information_system: ['SoftwareSystem', 'SystemBoundary'],
   application_module: ['Container'],
   module_instance: ['DeploymentInstance'],
+  // Размещение экземпляра (module_deployment) — узел Deployment Instance:
+  // именно размещение несет сетевой адрес развертывания (ТЗ §10.3).
+  module_deployment: ['DeploymentInstance'],
   server: ['DeploymentNode'],
   cluster: ['DeploymentNode'],
   environment: ['EnvironmentBoundary'],
@@ -38,6 +41,15 @@ const isUuid = (value) =>
   typeof value === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
+/**
+ * Колонка состояния объекта, если она отличается от `status`.
+ * У размещения экземпляра (module_deployment) роль состояния играет
+ * deployment_state — CHECK-значения совпадают с реестровыми статусами.
+ */
+const REGISTRY_STATE_COLUMN = {
+  module_deployment: 'deployment_state',
+};
+
 /** Массовая проверка существования и статуса реестровых объектов. */
 async function loadRegistryObjects(refs) {
   const byType = new Map();
@@ -49,8 +61,9 @@ async function loadRegistryObjects(refs) {
 
   const result = new Map();
   for (const [type, ids] of byType) {
+    const stateColumn = REGISTRY_STATE_COLUMN[type] || 'status';
     const { rows } = await pool.query(
-      `SELECT id, status FROM ${REGISTRY_TABLE[type]} WHERE id = ANY($1::uuid[])`,
+      `SELECT id, ${stateColumn} AS status FROM ${REGISTRY_TABLE[type]} WHERE id = ANY($1::uuid[])`,
       [Array.from(ids)],
     );
     for (const row of rows) result.set(`${type}:${row.id}`, row);
@@ -235,6 +248,59 @@ export async function validateGraph(graph, options = {}) {
       add('INFO', 'ORPHAN_NODE', `Узел «${node.name}» не участвует ни в одной связи`, {
         nodeId: node.id,
       });
+    }
+  }
+
+  // 10-12. Схема развертывания: адреса размещений и срез по среде (ТЗ §10.3).
+  // Диаграмма развертывания показывает, с какого адреса на какой выполняется
+  // поток, поэтому отсутствие адреса у узла размещения — предупреждение.
+  if (String(graph.diagram?.type || '').toUpperCase() === 'DEPLOYMENT') {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const sliceEnvironmentId = graph.diagram?.scope?.environmentId || null;
+
+    /** Ближайшая граница среды в цепочке parent — среда размещения. */
+    const environmentOf = (node) => {
+      let current = node.parent ? byId.get(node.parent) : null;
+      let guard = 0;
+      while (current && guard < 100) {
+        if (current.c4Type === 'EnvironmentBoundary') return current.registryRef?.id || null;
+        current = current.parent ? byId.get(current.parent) : null;
+        guard += 1;
+      }
+      return null;
+    };
+
+    for (const node of nodes) {
+      if (node.c4Type !== 'DeploymentNode' && node.c4Type !== 'DeploymentInstance') continue;
+      const addresses = Array.isArray(node.style?.addresses) ? node.style.addresses : [];
+      if (addresses.length === 0) {
+        add(
+          'WARNING',
+          'DEPLOYMENT_ADDRESS_MISSING',
+          `Узел «${node.name}» не имеет сетевого адреса развертывания`,
+          { nodeId: node.id },
+        );
+      }
+      if (node.c4Type === 'DeploymentInstance' && sliceEnvironmentId) {
+        const nodeEnvironmentId = environmentOf(node);
+        if (nodeEnvironmentId && nodeEnvironmentId !== sliceEnvironmentId) {
+          add(
+            'ERROR',
+            'ENVIRONMENT_SLICE_MISMATCH',
+            `Размещение «${node.name}» относится к другой среде, чем срез схемы`,
+            { nodeId: node.id },
+          );
+        }
+      }
+    }
+
+    // Подпись связи схемы развертывания — адреса: «с какого адреса на какой».
+    for (const edge of edges) {
+      if (!String(edge.label || '').includes('→')) {
+        add('WARNING', 'EDGE_ADDRESS_UNRESOLVED', `У связи ${edge.id} не определены адреса`, {
+          edgeId: edge.id,
+        });
+      }
     }
   }
 

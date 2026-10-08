@@ -31,6 +31,24 @@ const clip = (value, max) => {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 };
 
+/**
+ * Сетевые адреса узла размещения (ТЗ §10.3) — строка для подписи в экспорте.
+ * Узел размещения описывает адреса развертывания: у кластера — набор адресов,
+ * у сервера — интерфейсы. Без маски подсети, роль адреса указывается рядом.
+ */
+const nodeAddresses = (node) => {
+  const list = Array.isArray(node.style?.addresses) ? node.style.addresses : [];
+  return list
+    .slice(0, 3)
+    .map((item) => {
+      const ip = String(item.ip_address || item.ipAddress || '').replace(/\/\d+$/, '');
+      const role = item.address_role || item.addressRole;
+      return role ? `${ip} (${role})` : ip;
+    })
+    .filter(Boolean)
+    .join(', ');
+};
+
 /** Рекурсивный bbox узла с учётом вложенных детей (границы контуров). */
 function nodeBbox(nodeId, byId, childrenOf, cache) {
   if (cache.has(nodeId)) return cache.get(nodeId);
@@ -190,9 +208,11 @@ export function exportSvg(graph, meta = {}) {
       `<path d="${d}" fill="none" stroke="#64748b" stroke-width="1.4" marker-end="url(#arch-arrow)"/>`,
     );
     if (edge.label) {
+      // Подпись связи схемы развертывания — адреса «откуда → куда», поэтому
+      // обрезка мягче, чем для имени потока (ТЗ §10.3).
       parts.push(
         `<text x="${route.labelX}" y="${route.labelY - 6}" text-anchor="middle" font-size="11" ` +
-          `fill="#334155">${escapeXml(clip(edge.label, 28))}</text>`,
+          `fill="#334155">${escapeXml(clip(edge.label, 42))}</text>`,
       );
     }
     if (edge.technology) {
@@ -221,6 +241,16 @@ export function exportSvg(graph, meta = {}) {
       parts.push(
         `<text x="${box.x + 16}" y="${box.y + 50}" font-size="11" fill="${style.tag}" ` +
           `font-family="monospace">${escapeXml(clip(node.technology, 34))}</text>`,
+      );
+    }
+    // Адреса развертывания — отдельной строкой (ТЗ §10.3): из схемы должно быть
+    // видно, на каком адресе размещен экземпляр. Карточка узла — 270px, поэтому
+    // строка адресов обрезается мягче, чем имя.
+    const addresses = nodeAddresses(node);
+    if (addresses && box.h >= 100) {
+      parts.push(
+        `<text x="${box.x + 16}" y="${box.y + 68}" font-size="10" fill="#0f766e" ` +
+          `font-family="monospace">${escapeXml(clip(addresses, 48))}</text>`,
       );
     }
     if (node.style?.code) {
@@ -271,7 +301,10 @@ export function exportPlantUml(graph, meta = {}) {
     const indent = '  '.repeat(depth);
     const key = sanitizeKey(node.id);
     const name = escPuml(node.name);
-    const desc = escPuml(node.description || '');
+    // Адреса развертывания идут в описание узла: схема развертывания отвечает
+    // на вопрос «с какого адреса на какой выполняется поток» (ТЗ §10.3).
+    const addresses = nodeAddresses(node);
+    const desc = escPuml([node.description, addresses].filter(Boolean).join(' · '));
     const tech = escPuml(node.technology || '');
     let head;
     let block = false;
@@ -286,7 +319,7 @@ export function exportPlantUml(graph, meta = {}) {
         block = true;
         break;
       case 'DeploymentNode':
-        head = `${indent}Deployment_Node(${key}, "${name}", "${tech}") {`;
+        head = `${indent}Deployment_Node(${key}, "${name}", "${tech}", "${desc}") {`;
         block = true;
         break;
       case 'Container':
@@ -360,7 +393,9 @@ export function exportMermaid(graph, meta = {}) {
       return;
     }
     const tech = node.technology ? `<br/>${escMermaid(node.technology)}` : '';
-    lines.push(`${indent}${key}["${label}${tech}"]`);
+    const addresses = nodeAddresses(node);
+    const addr = addresses ? `<br/>${escMermaid(addresses)}` : '';
+    lines.push(`${indent}${key}["${label}${tech}${addr}"]`);
     for (const child of childrenOf.get(node.id) || []) emit(child, depth);
   };
 

@@ -214,6 +214,16 @@ body {
   white-space: nowrap;
 }
 
+/* Адреса развертывания узла: у кластера — набор адресов, у сервера — его адреса */
+.arch-node__addr {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 10px;
+  color: #0f766e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .arch-node__foot {
   display: flex;
   align-items: center;

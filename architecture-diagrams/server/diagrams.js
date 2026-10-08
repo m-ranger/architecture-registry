@@ -44,6 +44,8 @@ const mapDiagramRow = (row) => ({
   diagramType: row.diagram_type,
   scopeType: row.scope_type,
   scopeObjectId: row.scope_object_id,
+  // Срез схемы по среде (диаграмма развертывания в разрезе среды, ТЗ §10.3).
+  scopeEnvironmentId: row.scope_environment_id || null,
   status: row.status,
   revision: row.revision,
   publishedVersion: row.published_version,
@@ -61,7 +63,9 @@ export async function listDiagrams() {
       COALESCE(n.node_count, 0) AS node_count,
       COALESCE(e.edge_count, 0) AS edge_count,
       COALESCE(isys.name, prj.name) AS scope_name,
-      COALESCE(isys.code, prj.code) AS scope_code
+      COALESCE(isys.code, prj.code) AS scope_code,
+      env.code AS environment_code,
+      env.name AS environment_name
     FROM architecture_diagram d
     LEFT JOIN (
       SELECT diagram_id, COUNT(*) AS node_count
@@ -77,6 +81,8 @@ export async function listDiagrams() {
       ON d.scope_type = 'information_system' AND isys.id = d.scope_object_id
     LEFT JOIN project prj
       ON d.scope_type = 'project' AND prj.id = d.scope_object_id
+    -- Срез схемы по среде: у схемы развертывания может быть выбрана одна среда.
+    LEFT JOIN environment env ON env.id = d.scope_environment_id
     ORDER BY d.updated_at DESC
   `);
   return rows.map((row) => ({
@@ -85,6 +91,8 @@ export async function listDiagrams() {
     edgeCount: Number(row.edge_count),
     scopeName: row.scope_name,
     scopeCode: row.scope_code,
+    environmentCode: row.environment_code || null,
+    environmentName: row.environment_name || null,
   }));
 }
 
@@ -156,7 +164,12 @@ export async function getDiagramGraph(idOrCode) {
       diagram: {
         id: diagram.id,
         type: String(diagram.diagram_type).toLowerCase(),
-        scope: { objectType: diagram.scope_type, objectId: diagram.scope_object_id },
+        scope: {
+          objectType: diagram.scope_type,
+          objectId: diagram.scope_object_id,
+          // Срез по среде: схема развертывания одной среды (NULL — все среды).
+          environmentId: diagram.scope_environment_id || null,
+        },
       },
       nodes,
       edges,
@@ -164,9 +177,18 @@ export async function getDiagramGraph(idOrCode) {
   };
 }
 
+/** Срез схемы по среде: environmentId опционален и должен быть корректным UUID. */
+function normalizeEnvironmentId(environmentId) {
+  if (!environmentId) return null;
+  if (!UUID_RE.test(String(environmentId))) {
+    throw httpError(400, `Некорректный environmentId: ${environmentId}`);
+  }
+  return String(environmentId);
+}
+
 /** Создание схемы (FR-001, ТЗ §12 POST /api/diagrams). */
 export async function createDiagram(input) {
-  const { code, name, description, diagramType, scopeType, scopeObjectId } = input;
+  const { code, name, description, diagramType, scopeType, scopeObjectId, environmentId } = input;
   if (!code || !name || !diagramType) {
     throw httpError(400, 'Поля code, name и diagramType обязательны');
   }
@@ -178,10 +200,12 @@ export async function createDiagram(input) {
   if (!SCOPE_TYPES.includes(scope)) {
     throw httpError(400, `Неподдерживаемый scopeType: ${scopeType}`);
   }
+  const environment = normalizeEnvironmentId(environmentId);
   const { rows } = await pool.query(
     `INSERT INTO architecture_diagram
-       (code, name, description, diagram_type, scope_type, scope_object_id, created_by, updated_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
+       (code, name, description, diagram_type, scope_type, scope_object_id, scope_environment_id,
+        created_by, updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
      RETURNING *`,
     [
       code,
@@ -190,8 +214,30 @@ export async function createDiagram(input) {
       String(diagramType).toUpperCase(),
       scope,
       scopeObjectId || null,
+      environment,
       USER,
     ],
+  );
+  return mapDiagramRow(rows[0]);
+}
+
+/**
+ * Смена среза схемы по среде (ТЗ §10.3).
+ * environmentId = null — срез снимается, схема показывает все среды.
+ * Граф после смены среза перестраивается вызывающим кодом (POST .../generate).
+ */
+export async function updateDiagramSlice(idOrCode, environmentId = null) {
+  const diagram = await findDiagram(idOrCode);
+  const environment = normalizeEnvironmentId(environmentId);
+  const { rows } = await pool.query(
+    `UPDATE architecture_diagram
+        SET scope_environment_id = $2,
+            updated_at = now(),
+            updated_by = $3,
+            dependencies_dirty = false
+      WHERE id = $1
+      RETURNING *`,
+    [diagram.id, environment, USER],
   );
   return mapDiagramRow(rows[0]);
 }
@@ -405,6 +451,7 @@ export async function publishDiagram(idOrCode) {
       name: diagram.name,
       diagramType: diagram.diagramType,
       scope: { objectType: diagram.scopeType, objectId: diagram.scopeObjectId },
+      environmentId: diagram.scopeEnvironmentId || null,
       revision: Number(locked.rows[0].revision),
       publishedAt: new Date().toISOString(),
       nodes: graph.nodes,

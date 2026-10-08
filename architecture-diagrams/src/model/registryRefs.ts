@@ -14,6 +14,7 @@ export const REGISTRY_TYPE_LABEL: Record<string, string> = {
   information_system: 'Информационная система',
   application_module: 'Модуль',
   module_instance: 'Экземпляр модуля',
+  module_deployment: 'Размещение экземпляра',
   server: 'Сервер',
   cluster: 'Кластер',
   environment: 'Среда',

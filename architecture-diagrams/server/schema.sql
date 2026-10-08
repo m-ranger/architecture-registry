@@ -77,3 +77,10 @@ CREATE TABLE IF NOT EXISTS diagram_version (
 );
 CREATE INDEX IF NOT EXISTS ix_diagram_version_diagram
     ON diagram_version(diagram_id, version_no DESC);
+
+-- 5. Срез схемы по среде ----------------------------------------------------
+-- Диаграмма развертывания строится в разрезе одной среды (тест, прод и т. п.):
+-- NULL — схема показывает все среды, как было до появления среза.
+ALTER TABLE architecture_diagram
+    ADD COLUMN IF NOT EXISTS scope_environment_id uuid NULL
+        REFERENCES environment(id) ON DELETE RESTRICT;

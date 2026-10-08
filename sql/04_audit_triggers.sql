@@ -11,6 +11,7 @@
 --   information_flow        — информационный поток
 --   information_flow_project — задействованность потока в проекте (связь 1:N,
 --                              редактируется вместе с потоком)
+--   cluster_network_address — сетевые адреса кластера (адреса развертывания)
 --
 -- В audit_log попадает полный снимок строки до и после изменения
 -- (old_value / new_value, jsonb), поэтому журнал остаётся читаемым и после
@@ -97,7 +98,8 @@ DECLARE
         'module_instance',          -- экземпляры модулей
         'project',                  -- проекты
         'information_flow',         -- информационные потоки
-        'information_flow_project'  -- задействованность потока в проекте
+        'information_flow_project', -- задействованность потока в проекте
+        'network_interface'         -- сетевые адреса узлов размещения (в т. ч. кластеров)
     ];
 BEGIN
     FOREACH t IN ARRAY audited_tables LOOP

@@ -119,18 +119,20 @@ SELECT
 FROM network_zone nz
 LEFT JOIN network_segment ns ON ns.network_zone_id = nz.id;
 
--- V11. Сетевые интерфейсы инфраструктуры
+-- V11. Сетевые интерфейсы инфраструктуры (в т. ч. адреса кластеров)
 CREATE OR REPLACE VIEW v11_network_interfaces AS
 SELECT
     ni.name AS interface_name, ni.ip_address, ni.mac_address, ni.interface_role, ni.status,
     ns.code AS segment_code, nz.code AS zone_code,
-    s.name AS server_name, r.name AS router_name, f.name AS firewall_name
+    s.name AS server_name, r.name AS router_name, f.name AS firewall_name,
+    c.name AS cluster_name
 FROM network_interface ni
-JOIN network_segment ns ON ns.id = ni.network_segment_id
-JOIN network_zone nz ON nz.id = ns.network_zone_id
+LEFT JOIN network_segment ns ON ns.id = ni.network_segment_id
+LEFT JOIN network_zone nz ON nz.id = ns.network_zone_id
 LEFT JOIN server s ON s.id = ni.server_id
 LEFT JOIN router r ON r.id = ni.router_id
-LEFT JOIN firewall f ON f.id = ni.firewall_id;
+LEFT JOIN firewall f ON f.id = ni.firewall_id
+LEFT JOIN cluster c ON c.id = ni.cluster_id;
 
 -- V12. Изменения архитектуры
 CREATE OR REPLACE VIEW v12_architecture_changes AS
@@ -160,4 +162,113 @@ SELECT
 FROM project prj
 LEFT JOIN information_flow_project fp ON fp.project_id = prj.id
 GROUP BY prj.id, prj.code, prj.name, prj.status;
+
+-- ============================================================================
+-- Сетевые адреса развертывания (V15, V15a, V16)
+-- Адрес размещения — network_interface: у сервера (владелец server_id), у
+-- кластера (владелец cluster_id, роль в кластере INGRESS/NODE/MANAGEMENT).
+-- Адрес со средой NULL действует во всех средах узла размещения.
+-- ============================================================================
+
+-- V15. Адреса размещений экземпляров модулей (по средам).
+-- Каждая строка — один адрес узла размещения (server/cluster) для размещения
+-- экземпляра модуля. Строка с ip_address IS NULL означает, что у узла
+-- размещения адрес не заведён — используется валидацией схем развертывания.
+CREATE OR REPLACE VIEW v15_deployment_addresses AS
+SELECT
+    md.id                    AS deployment_id,
+    mi.id                    AS instance_id,
+    mi.environment_id,
+    isys.code                AS is_code,
+    am.code                  AS module_code,
+    mi.name                  AS instance_name,
+    env.code                 AS env_code,
+    env.name                 AS env_name,
+    md.deployment_role,
+    md.deployment_state,
+    CASE WHEN md.server_id IS NOT NULL THEN 'server' ELSE 'cluster' END AS owner_type,
+    COALESCE(s.id, c.id)     AS owner_id,
+    COALESCE(s.name, c.name) AS owner_name,
+    c.management_address     AS cluster_management_address,
+    CASE WHEN ni.cluster_id IS NOT NULL THEN 'cluster_interface'
+         WHEN ni.server_id IS NOT NULL THEN 'server_interface'
+         ELSE NULL END       AS address_source,
+    ni.name                  AS address_name,
+    ni.ip_address,
+    ni.interface_role        AS address_role,
+    ni.status                AS address_status,
+    ni.environment_id        AS address_environment_id,
+    sn.code                  AS segment_code,
+    sz.code                  AS zone_code
+FROM module_deployment md
+JOIN module_instance mi ON mi.id = md.module_instance_id
+JOIN application_module am ON am.id = mi.module_id
+JOIN information_system isys ON isys.id = am.information_system_id
+JOIN environment env ON env.id = mi.environment_id
+LEFT JOIN server s ON s.id = md.server_id
+LEFT JOIN cluster c ON c.id = md.cluster_id
+-- Адрес узла размещения: у сервера — его интерфейсы, у кластера — адреса
+-- кластера. Адрес со средой NULL действует во всех средах узла.
+LEFT JOIN network_interface ni
+       ON (ni.server_id = md.server_id OR ni.cluster_id = md.cluster_id)
+      AND (ni.environment_id IS NULL OR ni.environment_id = mi.environment_id)
+LEFT JOIN network_segment sn ON sn.id = ni.network_segment_id
+LEFT JOIN network_zone sz ON sz.id = sn.network_zone_id
+WHERE md.deployment_state = 'ACTIVE';
+
+-- V15a. Предпочтительный адрес размещения экземпляра в среде.
+-- Приоритет роли: SERVICE -> INGRESS -> NODE -> MANAGEMENT -> прочие
+-- (у кластера точка входа INGRESS важнее адреса узла NODE), внутри роли —
+-- по возрастанию IP. Именно этот адрес подписывает информационный поток
+-- «с какого адреса на какой».
+CREATE OR REPLACE VIEW v15a_instance_primary_address AS
+SELECT DISTINCT ON (instance_id, env_code) *
+FROM v15_deployment_addresses
+WHERE ip_address IS NOT NULL
+  AND COALESCE(address_status, 'ACTIVE') = 'ACTIVE'
+  AND (address_environment_id IS NULL OR address_environment_id = environment_id)
+ORDER BY instance_id, env_code,
+    CASE address_role
+        WHEN 'SERVICE'    THEN 0
+        WHEN 'INGRESS'    THEN 1
+        WHEN 'VIRTUAL'    THEN 2
+        WHEN 'NODE'       THEN 3
+        WHEN 'MANAGEMENT' THEN 4
+        ELSE 5
+    END,
+    ip_address;
+
+-- V16. Информационные потоки с адресами: с какого адреса на какой адрес
+-- выполняется поток в каждой среде. Поток описан на уровне модулей
+-- (information_flow), адреса берутся из размещений экземпляров этих модулей.
+CREATE OR REPLACE VIEW v16_flow_addresses AS
+SELECT
+    fl.code  AS flow_code, fl.name AS flow_name, fl.status AS flow_status,
+    p.code   AS protocol_code, p.name AS protocol_name,
+    env.code AS env_code,
+    sis.code AS source_is_code, sm.code AS source_module_code,
+    smi.name AS source_instance_name,
+    sa.owner_type AS source_owner_type, sa.owner_name AS source_owner_name,
+    sa.ip_address AS source_address, sa.address_role AS source_address_role,
+    COALESCE(fl.source_port, p.default_port) AS source_port,
+    tis.code AS target_is_code, tm.code AS target_module_code,
+    tmi.name AS target_instance_name,
+    ta.owner_type AS target_owner_type, ta.owner_name AS target_owner_name,
+    ta.ip_address AS target_address, ta.address_role AS target_address_role,
+    COALESCE(fl.target_port, p.default_port) AS target_port
+FROM information_flow fl
+JOIN application_module sm ON sm.id = fl.source_module_id
+JOIN application_module tm ON tm.id = fl.target_module_id
+JOIN information_system sis ON sis.id = sm.information_system_id
+JOIN information_system tis ON tis.id = tm.information_system_id
+JOIN protocol p ON p.id = fl.protocol_id
+JOIN module_instance smi ON smi.module_id = sm.id
+JOIN v15a_instance_primary_address sa ON sa.instance_id = smi.id
+JOIN module_instance tmi
+      ON tmi.module_id = tm.id AND tmi.environment_id = smi.environment_id
+JOIN v15a_instance_primary_address ta
+      ON ta.instance_id = tmi.id AND ta.env_code = sa.env_code
+JOIN environment env ON env.id = smi.environment_id
+WHERE fl.status IN ('ACTIVE','PLANNED')
+  AND sm.id <> tm.id;
 

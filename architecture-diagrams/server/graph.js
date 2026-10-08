@@ -8,6 +8,9 @@ import {
   getProjectModules,
   getSystemsOfModules,
   getModuleDeployments,
+  getDeploymentAddresses,
+  ownerAddressKey,
+  ADDRESS_ROLE_PRIORITY,
 } from './registry.js';
 import { layeredLayout, gridLayout } from './layout.js';
 
@@ -85,6 +88,78 @@ function flowTechnology(flow) {
   return port ? `${base}/${port}` : base;
 }
 
+// ---------------------------------------------------------------------------
+// Сетевые адреса размещения (ТЗ §10.3)
+// Адреса развертывания берутся из реестра (network_interface): у сервера —
+// адреса сервера, у кластера — адреса кластера (роль в кластере: INGRESS,
+// NODE, MANAGEMENT). Адрес отображается на узле размещения и подписывает
+// информационный поток («с какого адреса на какой»).
+// ---------------------------------------------------------------------------
+
+const addressRoleRank = (role) => {
+  const index = ADDRESS_ROLE_PRIORITY.indexOf(String(role || 'OTHER'));
+  return index === -1 ? ADDRESS_ROLE_PRIORITY.length : index;
+};
+
+/** Адреса узла в порядке значимости: сервисный адрес первым, затем управление. */
+export function sortAddresses(addresses = []) {
+  return [...addresses].sort((a, b) => {
+    const byRole = addressRoleRank(a.address_role) - addressRoleRank(b.address_role);
+    if (byRole !== 0) return byRole;
+    if (Boolean(a.is_primary) !== Boolean(b.is_primary)) return a.is_primary ? -1 : 1;
+    return String(a.ip_address || '').localeCompare(String(b.ip_address || ''));
+  });
+}
+
+/** Предпочтительный адрес узла — тот, которым подписывается поток. */
+export function preferredAddress(addresses = []) {
+  return sortAddresses(addresses)[0] || null;
+}
+
+/** Адрес без маски подсети и, при наличии, с портом. */
+export function addressWithPort(address, port) {
+  if (!address) return null;
+  const ip = String(address.ip_address || '').replace(/\/\d+$/, '');
+  if (!ip) return null;
+  return port ? `${ip}:${port}` : ip;
+}
+
+/** Краткое описание адресов узла — подсказка узла и текст экспорта. */
+export function addressSummary(addresses = [], limit = 4) {
+  const list = sortAddresses(addresses)
+    .slice(0, limit)
+    .map((item) => `${String(item.ip_address || '').replace(/\/\d+$/, '')} (${item.address_role})`);
+  const rest = addresses.length - list.length;
+  return rest > 0 ? `${list.join(', ')} и ещё ${rest}` : list.join(', ');
+}
+
+/** Подпись связи «адрес:порт → адрес:порт» по предпочтительным адресам сторон. */
+function addressPairText(sourceAddresses, sourcePort, targetAddresses, targetPort) {
+  const from = addressWithPort(preferredAddress(sourceAddresses), sourcePort);
+  const to = addressWithPort(preferredAddress(targetAddresses), targetPort);
+  if (!from || !to) return null;
+  return `${from} → ${to}`;
+}
+
+/**
+ * Индекс адресов узлов размещения: server:<id> / cluster:<id> -> список адресов.
+ * Узел, у которого адресов нет, в индекс не попадает — это фиксирует валидация.
+ */
+async function loadAddresses(deployments, environmentId) {
+  const serverIds = [...new Set(deployments.map((d) => d.server_id).filter(Boolean))];
+  const clusterIds = [...new Set(deployments.map((d) => d.cluster_id).filter(Boolean))];
+  const rows = await getDeploymentAddresses({ serverIds, clusterIds, environmentId });
+
+  const index = new Map();
+  for (const row of rows) {
+    const key = ownerAddressKey(row.owner_type, row.owner_id);
+    if (!index.has(key)) index.set(key, []);
+    index.get(key).push(row);
+  }
+  for (const [key, list] of index) index.set(key, sortAddresses(list));
+  return index;
+}
+
 /** Ранжированная раскладка с учётом границ (границы считаются из детей на клиенте). */
 function applyLayout(nodes, edges, existingPositions = null) {
   const placeable = nodes.filter(
@@ -119,7 +194,14 @@ export const SCOPE_TYPES = {
  * ИС (модули ИС и её потоки), и по проекту (все информационные потоки проекта и
  * все модули, участвующие в проекте через эти интеграционные потоки).
  */
-async function loadScope(scopeType, scopeId) {
+/**
+ * Загрузка области схемы.
+ * Область описывается единым контекстом, поэтому все генераторы работают и по
+ * ИС (модули ИС и её потоки), и по проекту (все информационные потоки проекта и
+ * все модули, участвующие в проекте через эти интеграционные потоки).
+ * environmentId — срез по среде (диаграмма развертывания в разрезе среды).
+ */
+async function loadScope(scopeType, scopeId, { environmentId = null } = {}) {
   if (scopeType === SCOPE_TYPES.PROJECT) {
     const project = await getProject(scopeId);
     if (!project) throw Object.assign(new Error('Scope project not found'), { status: 404 });
@@ -127,7 +209,7 @@ async function loadScope(scopeType, scopeId) {
     const moduleIds = modules.map((module) => module.id);
     const [flows, deployments, systems] = await Promise.all([
       getProjectFlows(project.id),
-      getModuleDeployments(moduleIds),
+      getModuleDeployments(moduleIds, 'ACTIVE', environmentId),
       getSystemsOfModules(moduleIds),
     ]);
     return {
@@ -137,6 +219,8 @@ async function loadScope(scopeType, scopeId) {
       flows,
       deployments,
       systems,
+      addresses: await loadAddresses(deployments, environmentId),
+      environmentId,
       scopeKey: nodeKey(SCOPE_TYPES.PROJECT, project.id),
     };
   }
@@ -146,7 +230,7 @@ async function loadScope(scopeType, scopeId) {
   const [modules, flows, deployments] = await Promise.all([
     getModulesOfSystem(system.id),
     getSystemFlows(system.id),
-    getSystemDeployments(system.id),
+    getSystemDeployments(system.id, 'ACTIVE', environmentId),
   ]);
   return {
     scopeType: SCOPE_TYPES.INFORMATION_SYSTEM,
@@ -155,6 +239,8 @@ async function loadScope(scopeType, scopeId) {
     flows,
     deployments,
     systems: [system],
+    addresses: await loadAddresses(deployments, environmentId),
+    environmentId,
     scopeKey: nodeKey(SCOPE_TYPES.INFORMATION_SYSTEM, system.id),
   };
 }
@@ -419,8 +505,14 @@ async function generateContainer(ctx) {
 }
 
 /**
- * §10.3 Deployment: environment — граница, server/cluster — Deployment Node,
- * module_instance — Deployment Instance, module_deployment определяет размещение.
+ * §10.3 Deployment: environment — граница контура (срез схемы по среде),
+ * server/cluster — Deployment Node, module_deployment — размещение экземпляра.
+ *
+ * Каждое размещение (module_deployment) отображается отдельным узлом, поэтому
+ * экземпляр, развернутый на нескольких серверах, показывает адрес каждого
+ * размещения; для экземпляров в кластере адресом служит адрес кластера.
+ * Связи агрегируются из information_flow уровня модулей и подписываются
+ * адресами: с какого адреса на какой выполняется поток.
  * Для проекта в схему попадают размещения модулей, участвующих в его потоках.
  */
 async function generateDeployment(ctx) {
@@ -431,8 +523,7 @@ async function generateDeployment(ctx) {
 
   const environmentKeys = new Map();
   const ownerKeys = new Map();
-  const instanceKeys = new Map();
-  const moduleInstances = new Map();
+  const modulePlacements = new Map();
 
   for (const d of deployments) {
     let envKey = environmentKeys.get(d.environment_id);
@@ -452,6 +543,8 @@ async function generateDeployment(ctx) {
 
     const ownerType = d.server_id ? 'server' : 'cluster';
     const ownerId = d.server_id || d.cluster_id;
+    const ownerAddresses = ctx.addresses?.get(ownerAddressKey(ownerType, ownerId)) || [];
+
     let ownerKey = ownerKeys.get(ownerId);
     if (!ownerKey) {
       ownerKey = nodeKey(ownerType, ownerId);
@@ -462,67 +555,102 @@ async function generateDeployment(ctx) {
           registryRef: { type: ownerType, id: ownerId },
           c4Type: C4_TYPE.DEPLOYMENT_NODE,
           name: d.server_name || d.cluster_name,
-          technology: ownerType,
+          technology:
+            ownerType === 'cluster'
+              ? `cluster · ${d.cluster_type || 'KUBERNETES'}`
+              : 'server',
+          // Адреса узла идут отдельным атрибутом (style.addresses), поэтому
+          // описание не дублирует их в экспортируемых форматах (ТЗ §10.3).
+          description: null,
           parent: envKey,
-          style: { variant: 'infrastructure', status: d.server_status || d.cluster_status },
+          style: {
+            variant: 'infrastructure',
+            status: d.server_status || d.cluster_status,
+            // Адреса узла размещения: у сервера — интерфейсы, у кластера — адреса кластера
+            addresses: ownerAddresses,
+          },
         }),
       );
     }
 
-    let instKey = instanceKeys.get(d.instance_id);
-    if (!instKey) {
-      instKey = nodeKey('module_instance', d.instance_id);
-      instanceKeys.set(d.instance_id, instKey);
-      nodes.push(
-        makeNode({
-          id: instKey,
-          registryRef: { type: 'module_instance', id: d.instance_id },
-          c4Type: C4_TYPE.DEPLOYMENT_INSTANCE,
-          name: d.instance_name,
-          technology: d.module_code,
-          description: d.module_name,
-          parent: ownerKey,
-          style: { variant: 'application', code: d.module_code, role: d.deployment_role },
-        }),
-      );
-    }
+    // Размещение экземпляра: своя запись module_deployment — свой адрес.
+    const placementKey = nodeKey('module_deployment', d.id);
+    nodes.push(
+      makeNode({
+        id: placementKey,
+        registryRef: { type: 'module_deployment', id: d.id },
+        c4Type: C4_TYPE.DEPLOYMENT_INSTANCE,
+        name: d.instance_name,
+        technology: d.module_code,
+        description: d.module_name,
+        parent: ownerKey,
+        style: {
+          variant: 'application',
+          code: d.module_code,
+          status: d.instance_status,
+          role: d.deployment_role,
+          instanceId: d.instance_id,
+          environmentCode: d.environment_code,
+          addresses: ownerAddresses,
+        },
+      }),
+    );
 
-    if (!moduleInstances.has(d.module_id)) moduleInstances.set(d.module_id, new Map());
-    moduleInstances.get(d.module_id).set(d.instance_id, instKey);
+    if (!modulePlacements.has(d.module_id)) modulePlacements.set(d.module_id, new Map());
+    modulePlacements.get(d.module_id).set(d.id, { key: placementKey, addresses: ownerAddresses });
   }
 
-  // Связи между экземплярами агрегируются из information_flow уровня модулей.
+  // Связи между размещениями агрегируются из information_flow уровня модулей,
+  // подпись — адреса: «с какого адреса на какой» выполняется поток.
   const aggregated = new Map();
   for (const flow of flows) {
-    const sources = moduleInstances.get(flow.source_id);
-    const targets = moduleInstances.get(flow.target_id);
+    const sources = modulePlacements.get(flow.source_id);
+    const targets = modulePlacements.get(flow.target_id);
     if (!sources || !targets) continue;
-    for (const [sourceInstanceId, sourceKey] of sources) {
-      for (const [targetInstanceId, targetKey] of targets) {
-        if (sourceKey === targetKey) continue;
-        const key = `${sourceInstanceId}->${targetInstanceId}`;
+
+    for (const [sourceDeploymentId, source] of sources) {
+      for (const [targetDeploymentId, target] of targets) {
+        if (source.key === target.key) continue;
+        const key = `${sourceDeploymentId}->${targetDeploymentId}`;
         const item = aggregated.get(key) || {
-          source: sourceKey,
-          target: targetKey,
+          id: `dep:${key}`,
+          source: source.key,
+          target: target.key,
           count: 0,
           technologies: new Set(),
+          pairs: new Set(),
+          flowIds: [],
         };
         item.count += 1;
         item.technologies.add(flowTechnology(flow));
+        item.flowIds.push(flow.id);
+        const pair = addressPairText(
+          source.addresses,
+          flow.source_port || flow.default_port,
+          target.addresses,
+          flow.target_port || flow.default_port,
+        );
+        if (pair) item.pairs.add(pair);
         aggregated.set(key, item);
       }
     }
   }
 
-  let index = 0;
   for (const item of aggregated.values()) {
-    index += 1;
+    const pairs = Array.from(item.pairs);
+    const label =
+      pairs.length === 0
+        ? `потоков: ${item.count}`
+        : `${pairs.slice(0, 2).join(' · ')}${pairs.length > 2 ? ` +${pairs.length - 2}` : ''}`;
     edges.push(
       makeEdge({
-        id: `dep:${index}`,
+        id: item.id,
         source: item.source,
         target: item.target,
-        label: `потоков: ${item.count}`,
+        // Ссылка на поток сохраняется, только если связь не агрегирует несколько потоков.
+        registryRef:
+          item.flowIds.length === 1 ? { type: 'information_flow', id: item.flowIds[0] } : null,
+        label,
         technology: Array.from(item.technologies).filter(Boolean).join(', '),
       }),
     );
@@ -547,6 +675,7 @@ export async function generateGraph({
   diagramType,
   scopeId,
   scopeType = SCOPE_TYPES.INFORMATION_SYSTEM,
+  environmentId = null,
   mode = 'REBUILD',
   existingPositions = null,
 }) {
@@ -561,7 +690,7 @@ export async function generateGraph({
     throw Object.assign(new Error(`Unsupported scopeType: ${scopeType}`), { status: 400 });
   }
 
-  const ctx = await loadScope(scopeType, scopeId);
+  const ctx = await loadScope(scopeType, scopeId, { environmentId });
   const { nodes, edges } = await generator(ctx);
   applyLayout(nodes, edges, mode === 'SYNC' ? existingPositions : null);
 

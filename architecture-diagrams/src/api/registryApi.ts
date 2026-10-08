@@ -22,6 +22,19 @@ export interface ProjectOption {
   flowsCnt: number
 }
 
+/**
+ * Среда эксплуатации — срез схемы развертывания (ТЗ §10.3): по каждому проекту
+ * схему развертывания можно смотреть отдельно в разрезе теста, прода и т. п.
+ */
+export interface EnvironmentOption {
+  id: string
+  code: string
+  name: string
+  criticality: string | null
+  status: string
+  description: string | null
+}
+
 export interface FlowRow {
   id: string
   code: string
@@ -52,6 +65,9 @@ export const registryApi = {
 
   /** Проекты для выбора области схемы «в разрезе проекта» (FR-002). */
   projects: (query = '') => api.get<ProjectOption[]>(`/registry/projects?q=${q(query)}`),
+
+  /** Среды эксплуатации: выбор среза схемы развертывания по среде (ТЗ §10.3). */
+  environments: () => api.get<EnvironmentOption[]>('/registry/environments'),
 
   /** Поиск ИС, модулей, экземпляров, серверов, кластеров и потоков (FR-006). */
   search: (query = '', types?: string[]) => {

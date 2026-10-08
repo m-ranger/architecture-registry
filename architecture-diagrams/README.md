@@ -164,3 +164,66 @@ curl "http://localhost:8082/api/diagrams/ARCH-IS-001-CONTAINER/export?format=pla
 
 Заголовок `x-user-role` управляет правами: `ARCHITECT` (полные), `ANALYST` (без публикации),
 `OWNER` и `OBSERVER` (просмотр и экспорт).
+
+## Сетевые адреса развертывания и срез по среде
+
+Схема **Deployment** отвечает на вопрос «с какого адреса на какой адрес выполняется
+информационный поток», поэтому адрес развертывания — часть диаграммы:
+
+* **адрес узла размещения** — `network_interface`: владелец `server_id` — адрес
+  сервера (роль `interface_role`: `SERVICE`, `MANAGEMENT`, ...), владелец
+  `cluster_id` — адрес кластера, роль в кластере `interface_role`: `INGRESS`
+  (точка входа), `NODE` (узел), `MANAGEMENT` (управление); среда адреса —
+  `environment_id` (не задана — адрес действует во всех средах узла);
+* **узел размещения** (`server`/`cluster`) показывает свои адреса, а **узел размещения
+  экземпляра** (`module_deployment`) — адреса узла, на котором размещен: если экземпляр
+  развернут на нескольких серверах, узлов столько же, сколько размещений, и у каждого
+  свой адрес;
+* **подпись связи** — `адрес:порт → адрес:порт` по предпочтительным адресам сторон
+  (приоритет роли: `SERVICE` → `INGRESS` → `VIRTUAL` → `NODE` → `MANAGEMENT` → прочие).
+
+### Срез схемы по среде
+
+Диаграмму развертывания можно построить в разрезе одной среды (тест, прод и т. п.) —
+для каждого проекта отдельная схема на каждую среду:
+
+* у схемы есть поле `architecture_diagram.scope_environment_id` (`NULL` — все среды);
+* в списке схем реестра среда выбирается при создании схемы типа Deployment, в
+  редакторе модуля — селектором «Среда» на панели инструментов
+  (`PATCH /api/diagrams/{id}/slice`; после смены среза граф перестраивается по реестру);
+* в схему попадают размещения экземпляров выбранной среды, а на узлах показываются
+  адреса этой среды и «общие» адреса узла (`environment_id IS NULL`).
+
+
+### Проверки и экспорт
+
+Проверки схемы развертывания (`POST /api/diagrams/{id}/validate`):
+
+* `DEPLOYMENT_ADDRESS_MISSING` (WARNING) — у узла размещения нет ни одного адреса;
+* `ENVIRONMENT_SLICE_MISMATCH` (ERROR) — размещение относится к другой среде, чем срез схемы;
+* `EDGE_ADDRESS_UNRESOLVED` (WARNING) — в подписи связи нет адресов «откуда → куда».
+
+Экспорт (`SVG`, `PlantUML`, `Mermaid`, `JSON`) выводит адреса в узлах и подписях
+связей, поэтому выгрузка отвечает на тот же вопрос, что и canvas.
+
+### Пример: схема развертывания проекта в разрезе среды
+
+```bash
+# 1. Справочник сред для выбора среза
+curl "http://localhost:8082/api/registry/environments"
+
+# 2. Схема развертывания проекта A24-8394 в разрезе среды PROD
+curl -X POST http://localhost:8082/api/diagrams \
+  -H "Content-Type: application/json" \
+  -d "{\"code\":\"ARCH-PRJ-A24-8394-DEPLOY-PROD\",\"name\":\"Проект A24-8394 — Deployment (PROD)\",\"diagramType\":\"DEPLOYMENT\",\"scopeType\":\"project\",\"scopeObjectId\":\"<PROJECT-UUID>\",\"environmentId\":\"<ENV-UUID>\"}"
+
+# 3. Смена среза: схема перестраивается по данным реестра
+curl -X PATCH http://localhost:8082/api/diagrams/ARCH-PRJ-A24-8394-DEPLOY-PROD/slice \
+  -H "Content-Type: application/json" -d "{\"environmentId\":\"<ENV-UUID>\"}"
+```
+
+Чтобы адреса попали и в подписи связей, модули обеих сторон потока должны иметь
+размещения в одной и той же среде (`module_deployment` + `module_instance.environment_id`)
+и у узлов размещения должны быть заведены адреса (`network_interface` с владельцем
+`server_id` или `cluster_id`).
+

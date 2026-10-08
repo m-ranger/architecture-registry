@@ -80,7 +80,8 @@ CREATE INDEX ix_module_instance_module_id      ON module_instance(module_id);
 CREATE INDEX ix_module_instance_environment_id ON module_instance(environment_id);
 
 -- --------------------------------------------------------------------------
--- 05. server — IP хранятся в network_interface (multi-homing)
+-- 05. server — IP хранятся в network_interface (multi-homing);
+--     адреса кластеров — в cluster_network_address (набор адресов, п. 12.1)
 -- --------------------------------------------------------------------------
 CREATE TABLE server (
     id          uuid            PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -217,29 +218,50 @@ CREATE TABLE firewall (
 );
 
 -- --------------------------------------------------------------------------
--- 12. network_interface — владелец ровно один из server/router/firewall
+-- 12. network_interface — владелец ровно один из server/router/firewall/cluster
+--     Адрес развертывания живёт здесь у любого узла размещения: у сервера,
+--     маршрутизатора и МЭ — адрес устройства, у кластера — адрес кластера
+--     (их может быть несколько: точка входа, узлы, управление).
 -- --------------------------------------------------------------------------
 CREATE TABLE network_interface (
     id                  uuid            PRIMARY KEY DEFAULT gen_random_uuid(),
     server_id           uuid            NULL REFERENCES server(id) ON DELETE RESTRICT,
     router_id           uuid            NULL REFERENCES router(id) ON DELETE RESTRICT,
     firewall_id         uuid            NULL REFERENCES firewall(id) ON DELETE RESTRICT,
-    network_segment_id  uuid            NOT NULL REFERENCES network_segment(id) ON DELETE RESTRICT,
+    -- Адрес кластера: роль адреса в кластере задаёт interface_role.
+    cluster_id          uuid            NULL REFERENCES cluster(id) ON DELETE RESTRICT,
+    -- Сегмент не обязателен: адрес развертывания может быть заведён до
+    -- описания контура (сегмент уточняет зону и подсеть).
+    network_segment_id  uuid            NULL REFERENCES network_segment(id) ON DELETE RESTRICT,
+    -- Среда адреса: NULL — адрес действует во всех средах узла размещения.
+    environment_id      uuid            NULL REFERENCES environment(id) ON DELETE RESTRICT,
     name                varchar(255)    NOT NULL,
     ip_address          inet            NULL,
     mac_address         varchar(32)     NULL,
+    -- Роль адреса устройства: SERVICE, MANAGEMENT, VIRTUAL, BACKUP, OTHER.
+    -- Роль адреса в кластере: INGRESS (точка входа), NODE (узел кластера),
+    -- MANAGEMENT (управление) — значения ограничены CHECK ниже.
     interface_role      varchar(50)     NULL,
     status              varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
     CONSTRAINT chk_network_interface_owner CHECK (
         (CASE WHEN server_id IS NOT NULL THEN 1 ELSE 0 END +
          CASE WHEN router_id IS NOT NULL THEN 1 ELSE 0 END +
-         CASE WHEN firewall_id IS NOT NULL THEN 1 ELSE 0 END) = 1
+         CASE WHEN firewall_id IS NOT NULL THEN 1 ELSE 0 END +
+         CASE WHEN cluster_id IS NOT NULL THEN 1 ELSE 0 END) = 1
+    ),
+    -- Роль в кластере — управляемый словарь: INGRESS, NODE, MANAGEMENT.
+    CONSTRAINT chk_network_interface_cluster_role CHECK (
+        cluster_id IS NULL
+        OR interface_role IS NULL
+        OR interface_role IN ('INGRESS','NODE','MANAGEMENT')
     )
 );
 CREATE INDEX ix_network_interface_server   ON network_interface(server_id);
 CREATE INDEX ix_network_interface_router   ON network_interface(router_id);
 CREATE INDEX ix_network_interface_firewall ON network_interface(firewall_id);
+CREATE INDEX ix_network_interface_cluster  ON network_interface(cluster_id);
 CREATE INDEX ix_network_interface_segment  ON network_interface(network_segment_id);
+CREATE INDEX ix_network_interface_env      ON network_interface(environment_id);
 CREATE INDEX ix_network_interface_ip       ON network_interface USING gist (ip_address inet_ops);
 
 -- --------------------------------------------------------------------------
@@ -355,6 +377,8 @@ DROP TRIGGER IF EXISTS trg_touch_server ON server;
 CREATE TRIGGER trg_touch_server BEFORE UPDATE ON server FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
 DROP TRIGGER IF EXISTS trg_touch_cluster ON cluster;
 CREATE TRIGGER trg_touch_cluster BEFORE UPDATE ON cluster FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
+DROP TRIGGER IF EXISTS trg_touch_cluster_network_address ON cluster_network_address;
+CREATE TRIGGER trg_touch_cluster_network_address BEFORE UPDATE ON cluster_network_address FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
 DROP TRIGGER IF EXISTS trg_touch_information_flow ON information_flow;
 CREATE TRIGGER trg_touch_information_flow BEFORE UPDATE ON information_flow FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
 DROP TRIGGER IF EXISTS trg_touch_project ON project;

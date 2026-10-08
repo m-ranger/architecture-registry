@@ -8,6 +8,9 @@
 -- состав бизнес-данных от этого не меняется (при первом старте триггеры подключаются после сида).
 --
 -- Разделы 01-17 — реестровые таблицы, их создаёт 01_ddl.sql.
+-- Сетевые адреса развертывания (адреса серверов и кластеров) вынесены в
+-- 06_seed_addresses.sql: тот же файл применяется и к уже загруженной базе,
+-- поэтому демонстрационные адреса описаны в одном месте.
 -- Раздел 18 — данные модуля «Архитектурные схемы»: таблицы этого слоя создаёт сам
 -- модуль (architecture-diagrams/server/schema.sql при старте сервиса), поэтому при
 -- первом старте БД на пустом volume их ещё нет и раздел пропускается.
@@ -15,9 +18,9 @@
 
 TRUNCATE TABLE
     audit_log, information_flow_project, information_flow, network_interface,
-    firewall, router, network_segment, network_zone, module_deployment,
-    module_instance, cluster, server, protocol, project, application_module,
-    environment, information_system
+    firewall, router, network_segment, network_zone,
+    module_deployment, module_instance, cluster, server, protocol, project,
+    application_module, environment, information_system
 RESTART IDENTITY CASCADE;
 
 -- --------------------------------------------------------------------------

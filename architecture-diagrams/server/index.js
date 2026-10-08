@@ -17,6 +17,7 @@ import {
   getSystemFlows,
   listSystems,
   listProjects,
+  listEnvironments,
   REGISTRY_TYPES,
 } from './registry.js';
 
@@ -115,6 +116,17 @@ app.get(
   asyncRoute(async (req, res) => {
     res.json(await listProjects(String(req.query.q || '')));
   }),
+)
+
+/**
+ * Среды эксплуатации — для выбора среза схемы развертывания по среде
+ * (ТЗ §10.3): отдельная схема на тест, прод и т. п.
+ */
+app.get(
+  '/api/registry/environments',
+  asyncRoute(async (req, res) => {
+    res.json(await listEnvironments(String(req.query.q || '')));
+  }),
 );
 
 app.get(
@@ -170,6 +182,7 @@ app.post(
         diagramType: created.diagramType,
         scopeId: created.scopeObjectId,
         scopeType: created.scopeType,
+        environmentId: created.scopeEnvironmentId,
         mode: 'REBUILD',
       });
       await diagrams.applyGeneratedGraph(created.id, graph);
@@ -217,11 +230,35 @@ app.post(
       diagramType: current.diagramType,
       scopeId: current.scopeObjectId,
       scopeType: current.scopeType,
+      environmentId: current.scopeEnvironmentId,
       mode: String(req.body?.mode || 'REBUILD').toUpperCase(),
       existingPositions,
     });
     const diagram = await diagrams.applyGeneratedGraph(req.params.id, graph);
     res.json({ diagram, graph });
+  }),
+);
+
+/**
+ * Срез схемы по среде (ТЗ §10.3).
+ * Диаграмма развертывания строится отдельно для каждой среды: после смены
+ * среза граф перестраивается по данным реестра (layout сбрасывается).
+ */
+app.patch(
+  '/api/diagrams/:id/slice',
+  requirePermission('edit'),
+  asyncRoute(async (req, res) => {
+    const environmentId = req.body?.environmentId || null;
+    const diagram = await diagrams.updateDiagramSlice(req.params.id, environmentId);
+    const graph = await generateGraph({
+      diagramType: diagram.diagramType,
+      scopeId: diagram.scopeObjectId,
+      scopeType: diagram.scopeType,
+      environmentId: diagram.scopeEnvironmentId,
+      mode: 'REBUILD',
+    });
+    const saved = await diagrams.applyGeneratedGraph(diagram.id, graph);
+    res.json({ diagram: saved, graph });
   }),
 );
 

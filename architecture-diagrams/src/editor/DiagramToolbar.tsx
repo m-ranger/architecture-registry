@@ -16,6 +16,7 @@ import {
 import { DIAGRAM_TYPE_LABEL, STATUS_LABEL } from '../model/c4Types'
 import type { DiagramMeta, ValidationResult, VersionItem } from '../model/diagramTypes'
 import { EXPORT_LABEL, EXPORT_PRIORITY, type ExportFormat } from '../api/exportApi'
+import type { EnvironmentOption } from '../api/registryApi'
 
 interface DiagramToolbarProps {
   meta: DiagramMeta
@@ -37,6 +38,11 @@ interface DiagramToolbarProps {
   onRedo: () => void
   onExport: (format: ExportFormat) => void
   onRestore: (versionNo: number) => void
+  /** Срез схемы развертывания по среде (ТЗ §10.3) — только для DEPLOYMENT */
+  showEnvironment: boolean
+  environments: EnvironmentOption[]
+  environmentId: string | null
+  onChangeEnvironment: (environmentId: string | null) => void
 }
 
 /** Верхняя панель редактора: операции схемы, публикация и экспорт (ТЗ §11). */
@@ -60,10 +66,13 @@ export function DiagramToolbar({
   onRedo,
   onExport,
   onRestore,
+  showEnvironment,
+  environments,
+  environmentId,
+  onChangeEnvironment,
 }: DiagramToolbarProps) {
   const errors = validation?.summary.errors || 0
   const warnings = validation?.summary.warnings || 0
-
   return (
     <div className="arch-toolbar">
       <Space size={8} wrap>
@@ -106,6 +115,25 @@ export function DiagramToolbar({
         >
           <Button icon={<ReloadOutlined />}>Генерация</Button>
         </Dropdown>
+
+        {/* Срез схемы развертывания по среде (ТЗ §10.3): по каждому проекту
+            схему можно смотреть отдельно в разрезе теста, прода и т. п. */}
+        {showEnvironment ? (
+          <Tooltip title="Срез схемы развертывания по среде: пусто — показываются все среды">
+            <Select
+              size="middle"
+              style={{ width: 180 }}
+              placeholder="Среда (все)"
+              allowClear
+              value={environmentId ?? undefined}
+              onChange={(value?: string) => onChangeEnvironment(value ?? null)}
+              options={environments.map((environment) => ({
+                value: environment.id,
+                label: `${environment.code} · ${environment.name}`,
+              }))}
+            />
+          </Tooltip>
+        ) : null}
 
         <Tooltip title="Автоматическая раскладка по текущим связям (ТЗ §14)">
           <Button icon={<ThunderboltOutlined />} disabled={!canEdit} onClick={onAutoLayout}>

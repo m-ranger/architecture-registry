@@ -170,15 +170,19 @@ export async function getSystemFlows(systemId, statuses = ['ACTIVE', 'PLANNED'])
   return rows;
 }
 
-/** Размещения (module_deployment) экземпляров модулей ИС (ТЗ §10.3). */
-export async function getSystemDeployments(systemId, state = 'ACTIVE') {
+/**
+ * Размещения (module_deployment) экземпляров модулей ИС (ТЗ §10.3).
+ * environmentId — срез схемы по среде: в выборку попадают только размещения
+ * экземпляров указанной среды (NULL — все среды).
+ */
+export async function getSystemDeployments(systemId, state = 'ACTIVE', environmentId = null) {
   const { rows } = await pool.query(
     `SELECT md.id, md.deployment_role, md.deployment_state,
             mi.id AS instance_id, mi.name AS instance_name, mi.status AS instance_status,
             am.id AS module_id, am.code AS module_code, am.name AS module_name,
             env.id AS environment_id, env.code AS environment_code, env.name AS environment_name,
             s.id AS server_id, s.name AS server_name, s.status AS server_status,
-            c.id AS cluster_id, c.name AS cluster_name, c.status AS cluster_status
+            c.id AS cluster_id, c.name AS cluster_name, c.status AS cluster_status, c.cluster_type
      FROM module_deployment md
      JOIN module_instance mi ON mi.id = md.module_instance_id
      JOIN application_module am ON am.id = mi.module_id
@@ -186,8 +190,9 @@ export async function getSystemDeployments(systemId, state = 'ACTIVE') {
      LEFT JOIN server s ON s.id = md.server_id
      LEFT JOIN cluster c ON c.id = md.cluster_id
      WHERE am.information_system_id = $1 AND md.deployment_state = $2
+       AND ($3::uuid IS NULL OR env.id = $3::uuid)
      ORDER BY env.code, am.code, mi.name`,
-    [systemId, state],
+    [systemId, state, environmentId],
   );
   return rows;
 }
@@ -302,8 +307,11 @@ export async function getSystemsOfModules(moduleIds = []) {
   return rows;
 }
 
-/** Размещения экземпляров указанного набора модулей (scope = проект, ТЗ §10.3). */
-export async function getModuleDeployments(moduleIds = [], state = 'ACTIVE') {
+/**
+ * Размещения экземпляров указанного набора модулей (scope = проект, ТЗ §10.3).
+ * environmentId — срез схемы по среде (NULL — все среды).
+ */
+export async function getModuleDeployments(moduleIds = [], state = 'ACTIVE', environmentId = null) {
   if (moduleIds.length === 0) return [];
   const { rows } = await pool.query(
     `SELECT md.id, md.deployment_role, md.deployment_state,
@@ -311,7 +319,7 @@ export async function getModuleDeployments(moduleIds = [], state = 'ACTIVE') {
             am.id AS module_id, am.code AS module_code, am.name AS module_name,
             env.id AS environment_id, env.code AS environment_code, env.name AS environment_name,
             s.id AS server_id, s.name AS server_name, s.status AS server_status,
-            c.id AS cluster_id, c.name AS cluster_name, c.status AS cluster_status
+            c.id AS cluster_id, c.name AS cluster_name, c.status AS cluster_status, c.cluster_type
        FROM module_deployment md
        JOIN module_instance mi ON mi.id = md.module_instance_id
        JOIN application_module am ON am.id = mi.module_id
@@ -319,8 +327,101 @@ export async function getModuleDeployments(moduleIds = [], state = 'ACTIVE') {
        LEFT JOIN server s ON s.id = md.server_id
        LEFT JOIN cluster c ON c.id = md.cluster_id
       WHERE am.id = ANY($1::uuid[]) AND md.deployment_state = $2
+        AND ($3::uuid IS NULL OR env.id = $3::uuid)
       ORDER BY env.code, am.code, mi.name`,
-    [moduleIds, state],
+    [moduleIds, state, environmentId],
   );
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Сетевые адреса развертывания (адресные схемы Deployment, ТЗ §10.3)
+// Адрес узла размещения хранится в network_interface: владелец server_id —
+// адрес сервера, владелец cluster_id — адрес кластера (роль в кластере:
+// INGRESS, NODE, MANAGEMENT). Адрес со средой NULL действует во всех средах,
+// поэтому при срезе схемы по среде возвращаются и адреса конкретной среды, и
+// «общие» адреса узла.
+// ---------------------------------------------------------------------------
+
+/** Приоритет роли адреса: точка входа важнее адреса узла, затем управление. */
+export const ADDRESS_ROLE_PRIORITY = [
+  'SERVICE',
+  'INGRESS',
+  'VIRTUAL',
+  'NODE',
+  'MANAGEMENT',
+  'BACKUP',
+  'OTHER',
+];
+
+/** Список сред эксплуатации — для выбора среза схемы развертывания. */
+export async function listEnvironments(query = '', limit = 50) {
+  const { rows } = await pool.query(
+    `SELECT id, code, name, criticality, status, description
+       FROM environment
+      WHERE code ILIKE $1 OR name ILIKE $1
+      ORDER BY code
+      LIMIT $2`,
+    [`%${query}%`, Number(limit) || 50],
+  );
+  return rows;
+}
+
+/** Ключ узла размещения в индексе адресов: server:<id> или cluster:<id>. */
+export const ownerAddressKey = (ownerType, ownerId) => `${ownerType}:${ownerId}`;
+
+/**
+ * Адреса узлов размещения (server/cluster) с учётом среды.
+ * Возвращает строки с owner_type/owner_id, поэтому индекс строится в graph.js.
+ * Владелец адреса — server_id или cluster_id (ровно одно поле).
+ */
+export async function getDeploymentAddresses({
+  serverIds = [],
+  clusterIds = [],
+  environmentId = null,
+} = {}) {
+  const rows = [];
+
+  if (serverIds.length > 0 || clusterIds.length > 0) {
+    const { rows: ownerRows } = await pool.query(
+      `SELECT CASE WHEN ni.cluster_id IS NOT NULL THEN 'cluster' ELSE 'server' END AS owner_type,
+              COALESCE(ni.cluster_id, ni.server_id) AS owner_id,
+              ni.name, ni.ip_address::text AS ip_address,
+              COALESCE(ni.interface_role, 'OTHER') AS address_role,
+              false AS is_primary, ni.status,
+              ns.code AS segment_code, nz.code AS zone_code
+         FROM network_interface ni
+         LEFT JOIN network_segment ns ON ns.id = ni.network_segment_id
+         LEFT JOIN network_zone nz ON nz.id = ns.network_zone_id
+        WHERE (ni.server_id = ANY($1::uuid[]) OR ni.cluster_id = ANY($2::uuid[]))
+          AND ni.ip_address IS NOT NULL
+          AND ni.status <> 'RETIRED'
+          AND ($3::uuid IS NULL OR ni.environment_id IS NULL OR ni.environment_id = $3::uuid)
+        ORDER BY ni.ip_address`,
+      [serverIds, clusterIds, environmentId],
+    );
+    rows.push(...ownerRows);
+  }
+
+  if (clusterIds.length > 0) {
+    // Совместимость с прежней моделью: если у кластера адресов в
+    // network_interface нет, используется единственный адрес управления
+    // cluster.management_address.
+    const { rows: legacyRows } = await pool.query(
+      `SELECT c.id AS owner_id, 'cluster' AS owner_type,
+              'cluster.management_address' AS name, c.management_address AS ip_address,
+              'MANAGEMENT' AS address_role, false AS is_primary, 'ACTIVE' AS status,
+              NULL::text AS segment_code, NULL::text AS zone_code
+         FROM cluster c
+        WHERE c.id = ANY($1::uuid[])
+          AND c.management_address IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM network_interface ni WHERE ni.cluster_id = c.id
+          )`,
+      [clusterIds],
+    );
+    rows.push(...legacyRows);
+  }
+
   return rows;
 }

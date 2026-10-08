@@ -219,16 +219,25 @@ export const firewallsApi = {
   update: (id: string, payload: FirewallInput) => api.put<Firewall>(`/firewalls/${id}`, payload),
 }
 
-/** Тело запроса на создание сетевого интерфейса (ровно один владелец: server XOR router XOR firewall) */
+/** Тело запроса на создание сетевого интерфейса (владелец: server XOR router XOR firewall XOR cluster) */
 export interface NetworkInterfaceInput {
   serverId?: string
   routerId?: string
   firewallId?: string
-  networkSegmentId: string
+  /** Кластер — владелец адреса развертывания (роль в кластере — interfaceRole) */
+  clusterId?: string
+  /** Сегмент не обязателен: адрес можно завести до описания контура */
+  networkSegmentId?: string
   name: string
   ipAddress?: string
   macAddress?: string
+  /**
+   * Роль адреса: у устройства — SERVICE / MANAGEMENT / VIRTUAL / BACKUP / OTHER,
+   * у кластера — INGRESS / NODE / MANAGEMENT (роль в кластере, ТЗ §10.3)
+   */
   interfaceRole?: string
+  /** Среда адреса: не задана — адрес действует во всех средах узла размещения */
+  environmentId?: string | null
   status: NetworkInterface['status']
 }
 
@@ -335,6 +344,11 @@ export interface DiagramInput {
   scopeType?: string
   scopeObjectId?: string | null
   description?: string
+  /**
+   * Срез схемы развертывания по среде (ТЗ §10.3): отдельная схема на тест,
+   * прод и т. п. Схема без среза показывает все среды.
+   */
+  environmentId?: string | null
   /** false — создать пустую схему без автогенерации по данным реестра */
   generate?: boolean
 }

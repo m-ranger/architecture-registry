@@ -117,11 +117,20 @@ export interface NetworkInterface {
   serverId?: string
   routerId?: string
   firewallId?: string
-  networkSegmentId: string
+  /** Кластер — владелец адреса: адреса кластера задаются здесь же (ТЗ §10.3) */
+  clusterId?: string
+  /** Сегмент не обязателен: адрес можно завести до описания контура */
+  networkSegmentId?: string
   name: string
   ipAddress?: string
   macAddress?: string
+  /**
+   * Роль адреса: у устройства — SERVICE / MANAGEMENT / VIRTUAL / BACKUP / OTHER,
+   * у кластера — INGRESS / NODE / MANAGEMENT (роль в кластере).
+   */
   interfaceRole?: string
+  /** Среда адреса: NULL — адрес действует во всех средах узла размещения */
+  environmentId?: string | null
   status: 'PLANNED' | 'ACTIVE' | 'RETIRED'
 }
 
@@ -224,6 +233,13 @@ export interface DiagramListItem {
   /** Код и наименование области схемы (ИС или проект) — JOIN в API модуля */
   scopeCode?: string | null
   scopeName?: string | null
+  /**
+   * Срез схемы развертывания по среде (ТЗ §10.3): у схемы может быть
+   * зафиксирована одна среда — тест, прод и т. п.
+   */
+  scopeEnvironmentId?: string | null
+  environmentCode?: string | null
+  environmentName?: string | null
   createdAt?: string
   createdBy?: string
   updatedAt?: string

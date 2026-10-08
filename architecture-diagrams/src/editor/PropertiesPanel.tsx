@@ -1,6 +1,7 @@
-import { Button, Descriptions, Divider, Empty, Input, InputNumber, Select, Tag, Tooltip, Typography } from 'antd'
+import { Button, Descriptions, Divider, Empty, Input, InputNumber, Select, Space, Tag, Tooltip, Typography } from 'antd'
 import { DeleteOutlined, ExportOutlined } from '@ant-design/icons'
 import type { ArchEdge, ArchNode, RegistryRef } from '../model/diagramTypes'
+import { formatAddress, nodeAddresses } from '../model/diagramTypes'
 import { C4_TYPE, C4_VISUAL } from '../model/c4Types'
 import { registryTypeLabel } from '../model/registryRefs'
 
@@ -102,6 +103,8 @@ export function PropertiesPanel({
 
   const current = node as ArchNode
   const visual = C4_VISUAL[current.c4Type] || C4_VISUAL[C4_TYPE.CONTAINER]
+  // Адреса развертывания узла: у кластера — набор адресов, у сервера — интерфейсы.
+  const addresses = nodeAddresses(current)
 
   return (
     <div className="arch-props">
@@ -122,6 +125,22 @@ export function PropertiesPanel({
           )}
         </Descriptions.Item>
         <Descriptions.Item label="Родитель">{current.parent || '—'}</Descriptions.Item>
+        {current.c4Type === C4_TYPE.DEPLOYMENT_NODE ||
+        current.c4Type === C4_TYPE.DEPLOYMENT_INSTANCE ? (
+          <Descriptions.Item label="Адреса">
+            {addresses.length > 0 ? (
+              <Space direction="vertical" size={0}>
+                {addresses.map((address, index) => (
+                  <Typography.Text key={index} code style={{ fontSize: 12 }}>
+                    {formatAddress(address)}
+                  </Typography.Text>
+                ))}
+              </Space>
+            ) : (
+              <Tag color="orange">адрес не заведён</Tag>
+            )}
+          </Descriptions.Item>
+        ) : null}
       </Descriptions>
 
       <Divider style={{ margin: '12px 0' }} />

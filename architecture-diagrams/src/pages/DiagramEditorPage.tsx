@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Button, Drawer, Skeleton, Space, Tag, Typography, message } from 'antd'
 import { AlertOutlined } from '@ant-design/icons'
 import { diagramsApi } from '../api/diagramsApi'
-import { registryApi } from '../api/registryApi'
+import { registryApi, type EnvironmentOption } from '../api/registryApi'
 import { runExport } from '../export/exportService'
 import type { ExportFormat } from '../api/exportApi'
 import { DiagramEditor, type FocusRequest, type IssueIndex } from '../editor/DiagramEditor'
@@ -67,6 +67,25 @@ export function DiagramEditorPage() {
   const { meta, setMeta, graph, setGraph, loading, load } = useDiagramState(id, navigate)
 
   const [saving, setSaving] = useState(false)
+  // Среды для среза схемы развертывания: отдельная схема на каждую среду (ТЗ §10.3).
+  const [environments, setEnvironments] = useState<EnvironmentOption[]>([])
+
+  // Справочник сред нужен только схеме развертывания — для выбора среза (ТЗ §10.3).
+  useEffect(() => {
+    if (meta?.diagramType !== 'DEPLOYMENT') return
+    let cancelled = false
+    registryApi
+      .environments()
+      .then((list) => {
+        if (!cancelled) setEnvironments(list)
+      })
+      .catch(() => {
+        // справочник сред недоступен — селектор среза останется пустым
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [meta?.diagramType])
   const [dirty, setDirty] = useState(false)
   const [validation, setValidation] = useState<ValidationResult | null>(null)
   const [versions, setVersions] = useState<VersionItem[]>([])
@@ -193,6 +212,29 @@ export function DiagramEditorPage() {
       message.success(mode === 'REBUILD' ? 'Схема перестроена' : 'Схема синхронизирована с реестром')
     } catch (err) {
       message.error(err instanceof Error ? err.message : 'Не удалось выполнить генерацию')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  /**
+   * Срез схемы развертывания по среде (ТЗ §10.3): после смены среды граф
+   * перестраивается по данным реестра — адреса берутся из размещений среды.
+   */
+  const handleEnvironmentChange = async (environmentId: string | null) => {
+    if (!meta || !canEdit) return
+    setSaving(true)
+    try {
+      const payload = await diagramsApi.patchSlice(meta.id, environmentId)
+      applyPayload(payload)
+      const code = environments.find((environment) => environment.id === environmentId)?.code
+      message.success(
+        environmentId
+          ? `Схема построена по среде ${code ?? environmentId.slice(0, 8)}`
+          : 'Срез по среде снят: схема показывает все среды',
+      )
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Не удалось изменить срез по среде')
     } finally {
       setSaving(false)
     }
@@ -419,8 +461,15 @@ export function DiagramEditorPage() {
   const selectedEdge = graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null
   const boundaryCount = graph.nodes.filter((node) => isBoundary(node.c4Type)).length
   /** Подсказка об области схемы: информационная система или проект (FR-002). */
+  /** Срез по среде: код среды в подсказке области схемы (ТЗ §10.3). */
+  const sliceCode = environments.find((environment) => environment.id === meta.scopeEnvironmentId)?.code
   const scopeHint = meta.scopeObjectId
-    ? `${SCOPE_TYPE_LABEL[meta.scopeType] ?? meta.scopeType} · ${meta.scopeObjectId.slice(0, 8)}`
+    ? [
+        `${SCOPE_TYPE_LABEL[meta.scopeType] ?? meta.scopeType} · ${meta.scopeObjectId.slice(0, 8)}`,
+        sliceCode ? `срез: ${sliceCode}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
     : null
 
   return (
@@ -438,6 +487,10 @@ export function DiagramEditorPage() {
         onBack={() => navigate('/diagrams')}
         onSave={() => void handleSave()}
         onRegenerate={(mode) => void handleGenerate(mode)}
+        showEnvironment={meta.diagramType === 'DEPLOYMENT'}
+        environments={environments}
+        environmentId={meta.scopeEnvironmentId ?? null}
+        onChangeEnvironment={(environmentId) => void handleEnvironmentChange(environmentId)}
         onValidate={() => void handleValidate()}
         onPublish={() => void handlePublish()}
         onAutoLayout={handleAutoLayout}

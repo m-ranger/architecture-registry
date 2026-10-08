@@ -72,6 +72,8 @@ export const api = {
     apiFetch<T>(endpoint, { method: 'POST', body: JSON.stringify(data ?? {}) }),
   put: <T>(endpoint: string, data?: unknown) =>
     apiFetch<T>(endpoint, { method: 'PUT', body: JSON.stringify(data ?? {}) }),
+  patch: <T>(endpoint: string, data?: unknown) =>
+    apiFetch<T>(endpoint, { method: 'PATCH', body: JSON.stringify(data ?? {}) }),
   delete: <T>(endpoint: string) => apiFetch<T>(endpoint, { method: 'DELETE' }),
   base: API_BASE,
 }

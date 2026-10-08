@@ -18,6 +18,11 @@ export interface CreateDiagramInput {
   diagramType: DiagramType
   scopeType?: string
   scopeObjectId?: string | null
+  /**
+   * Срез схемы по среде (ТЗ §10.3): у схемы развертывания можно зафиксировать
+   * одну среду (тест, прод и т. п.), иначе схема строится по всем средам.
+   */
+  environmentId?: string | null
   /** false — создать пустую схему без автогенерации (FR-001/FR-002). */
   generate?: boolean
 }
@@ -57,6 +62,13 @@ export const diagramsApi = {
   /** mode=REBUILD перестраивает layout, mode=SYNC сохраняет ручные координаты (ТЗ §13). */
   generate: (diagramId: string, mode: 'REBUILD' | 'SYNC' = 'SYNC') =>
     api.post<DiagramPayload>(`/diagrams/${id(diagramId)}/generate`, { mode }),
+
+  /**
+   * Срез схемы развертывания по среде (ТЗ §10.3): граф перестраивается по
+   * данным реестра. environmentId = null — срез снимается (все среды).
+   */
+  patchSlice: (diagramId: string, environmentId: string | null) =>
+    api.patch<DiagramPayload>(`/diagrams/${id(diagramId)}/slice`, { environmentId }),
 
   validate: (diagramId: string) =>
     api.post<ValidationResult>(`/diagrams/${id(diagramId)}/validate`),

@@ -8,7 +8,7 @@ import {
   InboxOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { diagramsApi, informationSystemsApi, projectsApi } from '../api'
+import { diagramsApi, environmentsApi, informationSystemsApi, projectsApi } from '../api'
 import type { DiagramExportFormat, DiagramInput } from '../api'
 import { useApi } from '../api/useApi'
 import type { ApiError } from '../api/client'
@@ -28,7 +28,7 @@ const DIAGRAM_TYPE_LABEL: Record<DiagramType, string> = {
 const DIAGRAM_TYPE_HINT: Record<DiagramType, string> = {
   SYSTEM_CONTEXT: 'Информационная система и связанные системы (по информационным потокам)',
   CONTAINER: 'Модули ИС как Container, потоки между модулями',
-  DEPLOYMENT: 'Контуры, узлы размещения (серверы/кластеры) и экземпляры модулей',
+  DEPLOYMENT: 'Контуры, узлы размещения (серверы/кластеры), экземпляры модулей и адреса развертывания; срез по среде',
 }
 
 const DIAGRAM_TYPE_COLOR: Record<DiagramType, string> = {
@@ -112,6 +112,9 @@ export default function DiagramsPage() {
   const [form] = Form.useForm<DiagramInput>()
   /** Выбранная область схемы: информационная система (по умолчанию) или проект */
   const scopeType = (Form.useWatch('scopeType', form) ?? 'information_system') as ScopeType
+  /** Тип схемы: срез по среде доступен только схеме развертывания (ТЗ §10.3) */
+  const diagramType = Form.useWatch('diagramType', form) as DiagramType | undefined
+  const { data: environments } = useApi(environmentsApi.getAll)
 
   const items = diagrams ?? []
   const published = items.filter((d) => d.status === 'PUBLISHED').length
@@ -219,6 +222,20 @@ export default function DiagramsPage() {
             </Tag>
             {`${record.scopeCode} · ${record.scopeName ?? ''}`}
           </Space>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      // Срез схемы развертывания по среде: отдельная схема на тест, прод и т. п.
+      title: 'Среда',
+      key: 'environment',
+      width: 140,
+      render: (_: unknown, record: DiagramListItem) =>
+        record.environmentCode ? (
+          <Tooltip title='Срез схемы развертывания по среде (ТЗ §10.3)'>
+            <Tag color='geekblue'>{record.environmentCode}</Tag>
+          </Tooltip>
         ) : (
           '—'
         ),
@@ -512,6 +529,19 @@ export default function DiagramsPage() {
               }
             />
           </Form.Item>
+          {diagramType === 'DEPLOYMENT' ? (
+            <Form.Item
+              label='Среда (срез схемы развертывания)'
+              name='environmentId'
+              tooltip='Схема развертывания в разрезе одной среды: тест, прод и т. п. Пусто — схема показывает все среды (ТЗ §10.3)'
+            >
+              <Select
+                allowClear
+                placeholder='Все среды'
+                options={(environments ?? []).map((e) => ({ label: `${e.code} · ${e.name}`, value: e.id }))}
+              />
+            </Form.Item>
+          ) : null}
           <Form.Item label='Описание' name='description'>
             <Input.TextArea rows={2} placeholder='Что показывает схема' />
           </Form.Item>

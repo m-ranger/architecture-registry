@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { StatusTag } from '../components/StatusTag'
+import { formatAddress, nodeAddresses } from '../model/diagramTypes'
 import type { ArchNodeData } from './types'
 
 interface NodeShellProps {
@@ -23,6 +24,9 @@ const ISSUE_COLOR: Record<string, string> = {
 export function NodeShell({ data, selected, accent, icon }: NodeShellProps) {
   const node = data.arch
   const variant = String(node.style?.variant || 'application')
+  // Адреса развертывания (ТЗ §10.3): у кластера — набор адресов, у сервера — интерфейсы.
+  const addresses = nodeAddresses(node)
+  const addressText = addresses.map(formatAddress).filter(Boolean)
   const borderColor = data.issueLevel
     ? ISSUE_COLOR[data.issueLevel]
     : variant === 'primary'
@@ -48,6 +52,13 @@ export function NodeShell({ data, selected, accent, icon }: NodeShellProps) {
       </div>
 
       {node.technology ? <div className="arch-node__tech">{node.technology}</div> : null}
+
+      {addressText.length > 0 ? (
+        <div className="arch-node__addr" title={addressText.join('; ')}>
+          {addressText.slice(0, 2).join(' · ')}
+          {addressText.length > 2 ? ` +${addressText.length - 2}` : ''}
+        </div>
+      ) : null}
 
       <div className="arch-node__foot">
         {node.style?.code ? <span className="arch-node__code">{String(node.style.code)}</span> : null}

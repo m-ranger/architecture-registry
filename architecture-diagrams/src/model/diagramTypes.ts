@@ -45,7 +45,8 @@ export interface ArchGraph {
   diagram: {
     id?: string
     type: string
-    scope: { objectType: string; objectId: string | null }
+    /** Срез по среде: схема развертывания одной среды, null — все среды (ТЗ §10.3) */
+    scope: { objectType: string; objectId: string | null; environmentId?: string | null }
   }
   nodes: ArchNode[]
   edges: ArchEdge[]
@@ -76,6 +77,43 @@ export const SCOPE_OPTIONS = (Object.keys(SCOPE_TYPE_LABEL) as ScopeType[]).map(
   title: SCOPE_TYPE_HINT[value],
 }))
 
+/**
+ * Сетевой адрес развертывания (ТЗ §10.3) — адрес узла размещения из
+ * network_interface: у сервера — адрес сервера, у кластера — адрес кластера
+ * (роль в кластере: INGRESS, NODE, MANAGEMENT). Реестр отдаёт snake_case,
+ * клиент API модуля приводит ответ к camelCase, поэтому поддерживаются оба вида.
+ */
+export interface ArchAddress {
+  ip_address?: string
+  ipAddress?: string
+  address_role?: string | null
+  addressRole?: string | null
+  is_primary?: boolean
+  isPrimary?: boolean
+  name?: string | null
+  segment_code?: string | null
+  segmentCode?: string | null
+}
+
+/** IP-адрес без маски подсети. */
+export const addressIp = (address: ArchAddress) =>
+  String(address.ip_address ?? address.ipAddress ?? '').replace(/\/\d+$/, '')
+
+/** Роль адреса: у устройства — SERVICE/MANAGEMENT/VIRTUAL/BACKUP/OTHER, у кластера — INGRESS/NODE/MANAGEMENT. */
+export const addressRole = (address: ArchAddress) =>
+  String(address.address_role ?? address.addressRole ?? '')
+
+/** Адреса узла размещения: пустой массив означает, что адреса не заведены. */
+export const nodeAddresses = (node: ArchNode): ArchAddress[] =>
+  Array.isArray(node.style?.addresses) ? (node.style.addresses as ArchAddress[]) : []
+
+/** Адрес одной строкой для подписи узла: «10.10.10.14 (SERVICE)». */
+export const formatAddress = (address: ArchAddress) => {
+  const ip = addressIp(address)
+  const role = addressRole(address)
+  return ip ? (role ? `${ip} (${role})` : ip) : ''
+}
+
 export interface DiagramMeta {
   id: string
   code: string
@@ -84,6 +122,14 @@ export interface DiagramMeta {
   diagramType: DiagramType
   scopeType: ScopeType
   scopeObjectId: string | null
+  /**
+   * Срез схемы по среде (ТЗ §10.3): диаграмма развертывания строится отдельно
+   * для каждой среды — тест, прод и т. п. null — схема показывает все среды.
+   */
+  scopeEnvironmentId: string | null
+  /** Код и наименование среды среза — заполняет API модуля в списке схем */
+  environmentCode?: string | null
+  environmentName?: string | null
   status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
   revision: number
   publishedVersion: number | null
@@ -152,6 +198,8 @@ export const REGISTRY_ROUTE: Record<string, string> = {
   information_system: '/is',
   application_module: '/modules',
   module_instance: '/instances',
+  // Размещение экземпляра: узел Deployment Instance несет адрес развертывания.
+  module_deployment: '/deployments',
   server: '/servers',
   cluster: '/clusters',
   environment: '/environments',

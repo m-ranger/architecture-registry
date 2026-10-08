@@ -118,7 +118,9 @@ export const DIAGRAM_TYPE_LABEL: Record<DiagramType, string> = {
 export const DIAGRAM_TYPE_HINT: Record<DiagramType, string> = {
   SYSTEM_CONTEXT: 'Информационная система и связанные системы (по information_flow)',
   CONTAINER: 'Модули ИС как Container, потоки между модулями',
-  DEPLOYMENT: 'Контуры, узлы размещения (server/cluster) и экземпляры модулей',
+  DEPLOYMENT:
+    'Контуры, узлы размещения (server/cluster), экземпляры модулей и сетевые адреса ' +
+    'развертывания; можно зафиксировать срез по среде (тест, прод и т. п.)',
 }
 
 export const STATUS_LABEL: Record<string, string> = {

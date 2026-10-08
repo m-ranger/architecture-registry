@@ -3,23 +3,39 @@ import { Alert, App, Button, Card, Descriptions, Drawer, Form, Input, Select, Sp
 import { SearchOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
-import { interfacesApi, serversApi, routersApi, firewallsApi, segmentsApi, zonesApi } from '../api'
+import { clustersApi, environmentsApi, interfacesApi, serversApi, routersApi, firewallsApi, segmentsApi, zonesApi } from '../api'
 import type { NetworkInterfaceInput } from '../api'
 import { useApi } from '../api/useApi'
 import type { ApiError } from '../api/client'
 import type { NetworkInterface } from '../types'
 
-/** Значения формы интерфейса: владелец задаётся единым полем server:<id> | router:<id> | firewall:<id> */
-type InterfaceFormValues = Omit<NetworkInterfaceInput, 'serverId' | 'routerId' | 'firewallId'> & { owner?: string }
+/**
+ * Значения формы интерфейса: владелец задаётся единым полем
+ * server:<id> | router:<id> | firewall:<id> | cluster:<id>.
+ */
+type InterfaceFormValues = Omit<NetworkInterfaceInput, 'serverId' | 'routerId' | 'firewallId' | 'clusterId'> & { owner?: string }
+
+/**
+ * Роли адреса в кластере — управляемый словарь (CHECK в network_interface):
+ * INGRESS — точка входа, NODE — узел кластера, MANAGEMENT — управление.
+ */
+const CLUSTER_ROLE_OPTIONS = [
+  { value: 'INGRESS', label: 'INGRESS — точка входа в кластер' },
+  { value: 'NODE', label: 'NODE — адрес узла кластера' },
+  { value: 'MANAGEMENT', label: 'MANAGEMENT — управление кластером' },
+]
 
 export default function InterfacesPage() {
   const { message } = App.useApp()
   const { data: interfaces, loading: isLoading, error: isError, refetch } = useApi(interfacesApi.getAll)
   const { data: servers } = useApi(serversApi.getAll)
+  const { data: clusters } = useApi(clustersApi.getAll)
   const { data: routers } = useApi(routersApi.getAll)
   const { data: firewalls } = useApi(firewallsApi.getAll)
   const { data: segments } = useApi(segmentsApi.getAll)
   const { data: zones } = useApi(zonesApi.getAll)
+  // Среда адреса: адрес сервиса относится к среде, адрес управления — ко всем
+  const { data: environments } = useApi(environmentsApi.getAll)
   const [q, setQ] = useState('')
   const [active, setActive] = useState<NetworkInterface | null>(null)
   const [formDrawerOpen, setFormDrawerOpen] = useState(false)
@@ -27,28 +43,41 @@ export default function InterfacesPage() {
   const [submitting, setSubmitting] = useState(false)
   const [editingRecord, setEditingRecord] = useState<NetworkInterface | null>(null)
   const [form] = Form.useForm<InterfaceFormValues>()
+  // Владелец в форме: у адреса кластера роль выбирается из словаря INGRESS/NODE/MANAGEMENT.
+  const formOwner = Form.useWatch('owner', form)
+  const formClusterOwner = String(formOwner ?? '').startsWith('cluster:')
 
-  const ownerOf = (nic: NetworkInterface): { kind: 'Сервер' | 'Маршрутизатор' | 'МЭ'; name: string } => {
+  const ownerOf = (nic: NetworkInterface): { kind: 'Сервер' | 'Кластер' | 'Маршрутизатор' | 'МЭ'; name: string } => {
     if (nic.serverId) return { kind: 'Сервер', name: servers?.find((s) => s.id === nic.serverId)?.name ?? '—' }
+    if (nic.clusterId) return { kind: 'Кластер', name: clusters?.find((c) => c.id === nic.clusterId)?.name ?? '—' }
     if (nic.routerId) return { kind: 'Маршрутизатор', name: routers?.find((r) => r.id === nic.routerId)?.name ?? '—' }
     if (nic.firewallId) return { kind: 'МЭ', name: firewalls?.find((f) => f.id === nic.firewallId)?.name ?? '—' }
     return { kind: 'Сервер', name: '—' }
   }
 
-  const zoneOf = (segmentId: string) => {
+  /** Адрес кластера: роль адреса — управляемый словарь INGRESS / NODE / MANAGEMENT. */
+  const isClusterOwned = (nic: NetworkInterface | null) => Boolean(nic?.clusterId)
+
+  const zoneOf = (segmentId?: string) => {
     const seg = segments?.find((s) => s.id === segmentId)
     return seg ? zones?.find((z) => z.id === seg.networkZoneId)?.code ?? '—' : '—'
   }
+
+  /** Код среды адреса: null — адрес действует во всех средах узла размещения. */
+  const envCode = (environmentId?: string | null) =>
+    environments?.find((e) => e.id === environmentId)?.code ?? null
 
   const handleSave = async () => {
     try {
       const values = await form.validateFields()
       const { owner, ...rest } = values
+      const ownerId = (prefix: string) => (owner?.startsWith(prefix) ? owner.slice(prefix.length) : undefined)
       const payload: NetworkInterfaceInput = {
         ...rest,
-        serverId: owner?.startsWith('server:') ? owner.slice('server:'.length) : undefined,
-        routerId: owner?.startsWith('router:') ? owner.slice('router:'.length) : undefined,
-        firewallId: owner?.startsWith('firewall:') ? owner.slice('firewall:'.length) : undefined,
+        serverId: ownerId('server:'),
+        routerId: ownerId('router:'),
+        firewallId: ownerId('firewall:'),
+        clusterId: ownerId('cluster:'),
       }
       setSubmitting(true)
       if (formMode === 'create') {
@@ -85,8 +114,17 @@ export default function InterfacesPage() {
     setEditingRecord(record)
     setFormMode('edit')
     form.setFieldsValue({
-      owner: record.serverId ? `server:${record.serverId}` : record.routerId ? `router:${record.routerId}` : record.firewallId ? `firewall:${record.firewallId}` : undefined,
+      owner: record.serverId
+        ? `server:${record.serverId}`
+        : record.clusterId
+          ? `cluster:${record.clusterId}`
+          : record.routerId
+            ? `router:${record.routerId}`
+            : record.firewallId
+              ? `firewall:${record.firewallId}`
+              : undefined,
       networkSegmentId: record.networkSegmentId,
+      environmentId: record.environmentId ?? null,
       name: record.name,
       ipAddress: record.ipAddress,
       macAddress: record.macAddress,
@@ -103,10 +141,10 @@ export default function InterfacesPage() {
     return interfaces.filter((x) => {
       const o = ownerOf(x)
       const seg = segments?.find((s) => s.id === x.networkSegmentId)
-      return `${x.name} ${x.ipAddress ?? ''} ${x.macAddress ?? ''} ${x.interfaceRole ?? ''} ${o.name} ${seg?.code ?? ''}`.toLowerCase().includes(t)
+      return `${x.name} ${x.ipAddress ?? ''} ${x.macAddress ?? ''} ${x.interfaceRole ?? ''} ${o.kind} ${o.name} ${seg?.code ?? ''} ${envCode(x.environmentId) ?? 'все среды'}`.toLowerCase().includes(t)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, interfaces, segments, servers, routers, firewalls])
+  }, [q, interfaces, segments, servers, clusters, routers, firewalls])
 
   const columns: ColumnsType<NetworkInterface> = [
     { title: 'Имя', dataIndex: 'name', key: 'name', width: 160 },
@@ -114,8 +152,15 @@ export default function InterfacesPage() {
       title: 'Привязан к', key: 'owner', width: 240,
       render: (_: unknown, r: NetworkInterface) => {
         const o = ownerOf(r)
-        const color = o.kind === 'Сервер' ? 'green' : o.kind === 'Маршрутизатор' ? 'purple' : 'orange'
+        const color = o.kind === 'Сервер' ? 'green' : o.kind === 'Кластер' ? 'geekblue' : o.kind === 'Маршрутизатор' ? 'purple' : 'orange'
         return <Tag color={color}>{o.kind}: {o.name}</Tag>
+      },
+    },
+    {
+      title: 'Среда', key: 'env', width: 120,
+      render: (_: unknown, r: NetworkInterface) => {
+        const code = envCode(r.environmentId)
+        return code ? <Tag color='cyan'>{code}</Tag> : <Typography.Text type='secondary'>все среды</Typography.Text>
       },
     },
     {
@@ -126,7 +171,7 @@ export default function InterfacesPage() {
     },
     { title: 'IP', dataIndex: 'ipAddress', key: 'ip', width: 150, render: (v?: string) => v ?? '—' },
     { title: 'MAC', dataIndex: 'macAddress', key: 'mac', width: 170, render: (v?: string) => v ?? '—' },
-    { title: 'Роль', dataIndex: 'interfaceRole', key: 'role', width: 120, render: (v?: string) => v ?? '—' },
+    { title: 'Роль адреса', dataIndex: 'interfaceRole', key: 'role', width: 150, render: (v: string | undefined, r: NetworkInterface) => (v ? (isClusterOwned(r) ? `${v} (в кластере)` : v) : '—') },
     { title: 'Статус', dataIndex: 'status', key: 'status', width: 120, render: (v: string) => <StatusTag value={v} /> },
   ]
 
@@ -144,7 +189,7 @@ export default function InterfacesPage() {
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Сетевые интерфейсы</Typography.Title>
           <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>network_interface</Typography.Text> · Ровно одна привязка: server_id XOR router_id XOR firewall_id (REQ-018); сегмент обязателен
+            Сущность <Typography.Text code>network_interface</Typography.Text> · Ровно одна привязка: server_id XOR router_id XOR firewall_id XOR cluster_id (REQ-018); адрес кластера задаётся здесь же — роль в кластере INGRESS / NODE / MANAGEMENT (ТЗ §10.3)
           </Typography.Text>
         </div>
         <Space>
@@ -175,9 +220,12 @@ export default function InterfacesPage() {
               <Descriptions.Item label='Привязан к'>{ownerOf(active).kind}: {ownerOf(active).name}</Descriptions.Item>
               <Descriptions.Item label='Сегмент'>{segments?.find((s) => s.id === active.networkSegmentId)?.code ?? '—'}</Descriptions.Item>
               <Descriptions.Item label='Зона'>{zoneOf(active.networkSegmentId)}</Descriptions.Item>
+              <Descriptions.Item label='Среда адреса'>{envCode(active.environmentId) ?? 'все среды'}</Descriptions.Item>
               <Descriptions.Item label='IP-адрес'>{active.ipAddress ?? '—'}</Descriptions.Item>
               <Descriptions.Item label='MAC-адрес'>{active.macAddress ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label='Роль интерфейса'>{active.interfaceRole ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label={isClusterOwned(active) ? 'Роль в кластере' : 'Роль адреса'}>
+                {active.interfaceRole ?? '—'}
+              </Descriptions.Item>
               <Descriptions.Item label='Статус'><StatusTag value={active.status} /></Descriptions.Item>
             </Descriptions>
           </Space>
@@ -199,24 +247,30 @@ export default function InterfacesPage() {
       >
         <Form form={form} layout='vertical'>
           <Form.Item
-            label='Владелец интерфейса'
+            label='Владелец адреса'
             name='owner'
-            rules={[{ required: true, message: 'Выберите сервер, маршрутизатор или МЭ' }]}
-            tooltip='Ровно одна привязка: сервер XOR маршрутизатор XOR МЭ (REQ-018)'
+            rules={[{ required: true, message: 'Выберите сервер, кластер, маршрутизатор или МЭ' }]}
+            tooltip='Ровно одна привязка: server_id XOR router_id XOR firewall_id XOR cluster_id (REQ-018)'
           >
             <Select
               showSearch
               optionFilterProp='label'
-              placeholder='Сервер, маршрутизатор или МЭ'
+              placeholder='Сервер, кластер, маршрутизатор или МЭ'
               options={[
                 { label: 'Серверы', options: (servers ?? []).map((s) => ({ label: `Сервер: ${s.name}`, value: `server:${s.id}` })) },
+                { label: 'Кластеры', options: (clusters ?? []).map((c) => ({ label: `Кластер: ${c.name}`, value: `cluster:${c.id}` })) },
                 { label: 'Маршрутизаторы', options: (routers ?? []).map((r) => ({ label: `Маршрутизатор: ${r.name}`, value: `router:${r.id}` })) },
                 { label: 'Межсетевые экраны', options: (firewalls ?? []).map((f) => ({ label: `МЭ: ${f.name}`, value: `firewall:${f.id}` })) },
               ]}
             />
           </Form.Item>
-          <Form.Item label='Сегмент' name='networkSegmentId' rules={[{ required: true, message: 'Выберите сегмент' }]}>
+          <Form.Item
+            label='Сегмент'
+            name='networkSegmentId'
+            tooltip='Необязательно: сегмент уточняет контур адреса (ТЗ §10.3)'
+          >
             <Select
+              allowClear
               showSearch
               optionFilterProp='label'
               placeholder='Выберите сегмент'
@@ -224,6 +278,17 @@ export default function InterfacesPage() {
                 label: `${s.code} – ${s.name} (${zones?.find((z) => z.id === s.networkZoneId)?.code ?? '—'})`,
                 value: s.id,
               }))}
+            />
+          </Form.Item>
+          <Form.Item
+            label='Среда'
+            name='environmentId'
+            tooltip='Не задана — адрес действует во всех средах узла размещения (ТЗ §10.3)'
+          >
+            <Select
+              allowClear
+              placeholder='Все среды'
+              options={(environments ?? []).map((e) => ({ label: `${e.code} · ${e.name}`, value: e.id }))}
             />
           </Form.Item>
           <Form.Item label='Имя интерфейса' name='name' rules={[{ required: true, message: 'Укажите имя интерфейса' }]}>
@@ -235,8 +300,16 @@ export default function InterfacesPage() {
           <Form.Item label='MAC-адрес' name='macAddress'>
             <Input placeholder='00:1A:2B:3C:4D:5E' />
           </Form.Item>
-          <Form.Item label='Роль интерфейса' name='interfaceRole'>
-            <Input placeholder='UPLINK / SERVICE / MANAGEMENT' />
+          <Form.Item
+            label={formClusterOwner ? 'Роль в кластере' : 'Роль адреса'}
+            name='interfaceRole'
+            tooltip={formClusterOwner
+              ? 'Роль адреса кластера: INGRESS (точка входа), NODE (узел кластера), MANAGEMENT (управление)'
+              : 'Роль адреса устройства, например UPLINK / SERVICE / MANAGEMENT'}
+          >
+            {formClusterOwner
+              ? <Select allowClear placeholder='INGRESS / NODE / MANAGEMENT' options={CLUSTER_ROLE_OPTIONS} />
+              : <Input placeholder='UPLINK / SERVICE / MANAGEMENT' />}
           </Form.Item>
           <Form.Item label='Статус' name='status' rules={[{ required: true, message: 'Выберите статус' }]}>
             <Select options={STATUS_OPTIONS.filter((o) => ['PLANNED', 'ACTIVE', 'RETIRED'].includes(o.value))} />
