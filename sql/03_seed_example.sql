@@ -36,10 +36,10 @@ INSERT INTO information_system (id, code, name, description, status, owner, crea
 -- 02. Environments (4 rows)
 -- --------------------------------------------------------------------------
 INSERT INTO environment (id, code, name, description, criticality, status, created_at, updated_at) VALUES
-    ('22222222-2222-2222-2222-000000000001', 'DEV', 'Development', '?????????? ????????????????????', 'LOW', 'ACTIVE', '2026-10-05T10:56:53Z', '2026-10-05T10:56:53Z'),
-    ('22222222-2222-2222-2222-000000000002', 'TEST', 'Test', '?????????? ????????????????????????', 'MEDIUM', 'ACTIVE', '2026-10-05T10:56:53Z', '2026-10-05T10:56:53Z'),
-    ('22222222-2222-2222-2222-000000000003', 'QUA', 'Quality Assurance', '?????????? ?????????????????????? ????????????????????????', 'HIGH', 'ACTIVE', '2026-10-05T10:56:53Z', '2026-10-05T10:56:53Z'),
-    ('22222222-2222-2222-2222-000000000004', 'PROD', 'Production', '???????????????????????? ??????????', 'CRITICAL', 'ACTIVE', '2026-10-05T10:56:53Z', '2026-10-05T10:56:53Z');
+    ('22222222-2222-2222-2222-000000000001', 'DEV', 'Development', 'Среда разработки', 'LOW', 'ACTIVE', '2026-10-05T10:56:53Z', '2026-10-08T11:05:02Z'),
+    ('22222222-2222-2222-2222-000000000002', 'TEST', 'Test', 'Среда тестирования', 'MEDIUM', 'ACTIVE', '2026-10-05T10:56:53Z', '2026-10-08T11:05:02Z'),
+    ('22222222-2222-2222-2222-000000000003', 'QUA', 'Quality Assurance', 'Среда приемочного тестирования', 'HIGH', 'ACTIVE', '2026-10-05T10:56:53Z', '2026-10-08T11:05:02Z'),
+    ('22222222-2222-2222-2222-000000000004', 'PROD', 'Production', 'Промышленная среда', 'CRITICAL', 'ACTIVE', '2026-10-05T10:56:53Z', '2026-10-08T11:05:02Z');
 -- --------------------------------------------------------------------------
 -- 03. Application Modules (8 rows)
 -- --------------------------------------------------------------------------
@@ -154,14 +154,14 @@ INSERT INTO network_segment (id, network_zone_id, code, name, cidr, vlan, purpos
 -- 10. Routers (2 rows)
 -- --------------------------------------------------------------------------
 INSERT INTO router (id, name, device_type, vendor, model, management_address, status, description) VALUES
-    ('99999999-9999-9999-9999-000000000001', 'RTR-DMZ-01', 'CORE', 'Cisco', 'ASR1002-X', '10.99.1.10/32', 'ACTIVE', '?????????????? ?????????????????????????? DMZ/LAN'),
-    ('99999999-9999-9999-9999-000000000002', 'RTR-PCI-01', 'EDGE', 'Juniper', 'MX204', '10.99.1.12/32', 'PLANNED', '?????????????????????????? PCI ?????????????????? (????????)');
+    ('99999999-9999-9999-9999-000000000001', 'RTR-DMZ-01', 'CORE', 'Cisco', 'ASR1002-X', '10.99.1.10/32', 'ACTIVE', 'Ядровой маршрутизатор DMZ/LAN'),
+    ('99999999-9999-9999-9999-000000000002', 'RTR-PCI-01', 'EDGE', 'Juniper', 'MX204', '10.99.1.12/32', 'PLANNED', 'Маршрутизатор PCI периметра (план)');
 -- --------------------------------------------------------------------------
 -- 11. Firewalls (2 rows)
 -- --------------------------------------------------------------------------
 INSERT INTO firewall (id, name, firewall_type, vendor, model, management_address, status, description) VALUES
-    ('aaaaaaaa-aaaa-aaaa-aaaa-000000000001', 'FW-01', 'PERIMETER', 'Palo Alto', 'PA-5250', '10.99.1.20/32', 'ACTIVE', '???????????????????? ?????????? ?????????? DMZ ?? LAN'),
-    ('aaaaaaaa-aaaa-aaaa-aaaa-000000000002', 'FW-PCI-01', 'ZONAL', 'Checkpoint', '15600', NULL, 'PLANNED', 'Firewalls ?????? PCI ????????');
+    ('aaaaaaaa-aaaa-aaaa-aaaa-000000000001', 'FW-01', 'PERIMETER', 'Palo Alto', 'PA-5250', '10.99.1.20/32', 'ACTIVE', 'Межсетевой экран между DMZ и LAN'),
+    ('aaaaaaaa-aaaa-aaaa-aaaa-000000000002', 'FW-PCI-01', 'ZONAL', 'Checkpoint', '15600', NULL, 'PLANNED', 'Firewalls для PCI зоны');
 -- --------------------------------------------------------------------------
 -- 12. Network Interfaces (0 rows)
 --     — ровно один владелец: server XOR router XOR firewall
@@ -174,7 +174,7 @@ INSERT INTO protocol (id, code, name, transport, layer, default_port, descriptio
     ('0830a380-924e-4516-8c8a-23967d2f5534', 'NFS', 'NFS', 'TCP', 'L7', 2049, NULL, 'ACTIVE'),
     ('bbbbbbbb-bbbb-bbbb-bbbb-000000000001', 'HTTPS', 'HTTP Secure', 'TCP', 'L7', 443, 'HTTPS REST/gRPC-over-TLS', 'ACTIVE'),
     ('bbbbbbbb-bbbb-bbbb-bbbb-000000000002', 'HTTP', 'HTTP', 'TCP', 'L7', 80, NULL, 'ACTIVE'),
-    ('bbbbbbbb-bbbb-bbbb-bbbb-000000000003', 'JDBC', 'JDBC', 'TCP', 'L7', 5432, '?????????????????????? ?? ?????????????????????? ????', 'ACTIVE'),
+    ('bbbbbbbb-bbbb-bbbb-bbbb-000000000003', 'JDBC', 'JDBC', 'TCP', 'L7', 5432, 'Подключение к реляционной БД', 'ACTIVE'),
     ('bbbbbbbb-bbbb-bbbb-bbbb-000000000004', 'Kafka', 'Apache Kafka', 'TCP', 'L7', 9092, NULL, 'ACTIVE'),
     ('bbbbbbbb-bbbb-bbbb-bbbb-000000000005', 'gRPC', 'gRPC', 'TCP', 'L7', 9090, NULL, 'ACTIVE'),
     ('bbbbbbbb-bbbb-bbbb-bbbb-000000000006', 'AMQP', 'AMQP', 'TCP', 'L7', 5672, NULL, 'ACTIVE'),
