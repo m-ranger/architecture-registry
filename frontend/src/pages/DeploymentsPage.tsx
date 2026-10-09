@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Alert, App, Button, Card, DatePicker, Descriptions, Drawer, Form, Input, Select, Space, Spin, Table, Tag, Typography } from 'antd'
-import { SearchOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
+import { Alert, App, Button, Card, DatePicker, Descriptions, Drawer, Form, Input, Popconfirm, Select, Space, Spin, Table, Tag, Typography } from 'antd'
+import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
@@ -32,6 +32,7 @@ export default function DeploymentsPage() {
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
   const [submitting, setSubmitting] = useState(false)
   const [editingRecord, setEditingRecord] = useState<ModuleDeployment | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [form] = Form.useForm<DeploymentFormValues>()
 
   const instanceOf = (d: ModuleDeployment) => instances?.find((i) => i.id === d.moduleInstanceId)
@@ -93,6 +94,26 @@ export default function DeploymentsPage() {
       deploymentState: record.deploymentState,
     })
     setFormDrawerOpen(true)
+  }
+
+  /** Удаление доступно только в режиме редактирования — из формы изменений */
+  const handleDelete = async () => {
+    if (!editingRecord) return
+    try {
+      setDeleting(true)
+      const label = instanceOf(editingRecord)?.name ?? 'Размещение'
+      await deploymentsApi.remove(editingRecord.id)
+      message.success(`Размещение «${label}» удалено`)
+      setFormDrawerOpen(false)
+      form.resetFields()
+      setEditingRecord(null)
+      setActive(null)
+      refetch()
+    } catch (err) {
+      message.error((err as ApiError)?.message ?? 'Не удалось удалить размещение')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const filtered = useMemo(() => {
@@ -167,7 +188,7 @@ export default function DeploymentsPage() {
         open={!!active}
         onClose={() => setActive(null)}
         width={640}
-        extra={<Button icon={<EditOutlined />} size='small' onClick={() => active && handleEdit(active)}>Редактировать</Button>}
+        extra={<Button type='primary' icon={<EditOutlined />} onClick={() => active && handleEdit(active)}>Редактировать</Button>}
       >
         {active && (
           <Space direction='vertical' size={16} style={{ width: '100%' }}>
@@ -196,9 +217,25 @@ export default function DeploymentsPage() {
         width={560}
         destroyOnClose
         footer={
-          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-            <Button onClick={() => { setFormDrawerOpen(false); form.resetFields() }}>Отмена</Button>
-            <Button type='primary' loading={submitting} onClick={handleSave}>{formMode === 'create' ? 'Создать' : 'Сохранить'}</Button>
+          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+            {formMode === 'edit' ? (
+              <Popconfirm
+                title='Удалить размещение?'
+                description={editingRecord ? instanceOf(editingRecord)?.name : undefined}
+                okText='Удалить'
+                cancelText='Отмена'
+                okButtonProps={{ danger: true }}
+                onConfirm={handleDelete}
+              >
+                <Button danger icon={<DeleteOutlined />} loading={deleting}>Удалить</Button>
+              </Popconfirm>
+            ) : (
+              <span />
+            )}
+            <Space>
+              <Button onClick={() => { setFormDrawerOpen(false); form.resetFields() }}>Отмена</Button>
+              <Button type='primary' loading={submitting} onClick={handleSave}>{formMode === 'create' ? 'Создать' : 'Сохранить'}</Button>
+            </Space>
           </Space>
         }
       >

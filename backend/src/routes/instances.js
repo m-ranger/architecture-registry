@@ -59,11 +59,22 @@ router.put('/:id', async (req, res, next) => {
   }
 });
 
+// DELETE /api/instances/:id — удалить экземпляр модуля
 router.delete('/:id', async (req, res, next) => {
   try {
     await deleteById(table, req.params.id);
     res.status(204).send();
   } catch (err) {
+    // 23503 — на запись ещё ссылаются зависимые объекты (FK объявлены ON DELETE RESTRICT)
+    if (err.code === '23503') {
+      return res.status(409).json({ error: 'Экземпляр модуля используется размещениями — сначала удалите размещения' });
+    }
+    if (err.message === 'Not found') {
+      return res.status(404).json({ error: 'Экземпляр модуля не найден' });
+    }
+    if (err.code === '22P02') {
+      return res.status(400).json({ error: 'Некорректный идентификатор записи' });
+    }
     next(err);
   }
 });

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Button, Card, Descriptions, Drawer, Form, Input, Select, Space, Table, Tag, Typography, Spin, Alert, App } from 'antd'
-import { SearchOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
+import { Button, Card, Descriptions, Drawer, Form, Input, Popconfirm, Select, Space, Table, Tag, Typography, Spin, Alert, App } from 'antd'
+import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
 import { informationSystemsApi, modulesApi } from '../api'
@@ -20,6 +20,7 @@ export default function InformationSystemsPage() {
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
   const [submitting, setSubmitting] = useState(false)
   const [editingRecord, setEditingRecord] = useState<InformationSystem | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [form] = Form.useForm<InformationSystemInput>()
 
   const handleSave = async () => {
@@ -70,6 +71,25 @@ export default function InformationSystemsPage() {
     setFormDrawerOpen(true)
   }
 
+  /** Удаление доступно только в режиме редактирования — из формы изменений */
+  const handleDelete = async () => {
+    if (!editingRecord) return
+    try {
+      setDeleting(true)
+      await informationSystemsApi.remove(editingRecord.id)
+      message.success(`ИС «${editingRecord.code}» удалена`)
+      setFormDrawerOpen(false)
+      form.resetFields()
+      setEditingRecord(null)
+      setActive(null)
+      refetch()
+    } catch (err) {
+      message.error((err as ApiError)?.message ?? 'Не удалось удалить информационную систему')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const filtered = useMemo(() => {
     if (!informationSystems) return []
     const t = q.trim().toLowerCase()
@@ -116,7 +136,7 @@ export default function InformationSystemsPage() {
         extra={
           <Space>
             <Tag color='blue'>{active?.code}</Tag>
-            <Button icon={<EditOutlined />} onClick={() => active && handleEdit(active)} size='small'>
+            <Button type='primary' icon={<EditOutlined />} onClick={() => active && handleEdit(active)}>
               Редактировать
             </Button>
           </Space>
@@ -152,11 +172,27 @@ export default function InformationSystemsPage() {
         onClose={() => { setFormDrawerOpen(false); form.resetFields() }}
         width={560}
         footer={
-          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-            <Button onClick={() => { setFormDrawerOpen(false); form.resetFields() }}>Отмена</Button>
-            <Button type='primary' onClick={handleSave} loading={submitting}>
-              {formMode === 'create' ? 'Создать' : 'Сохранить'}
-            </Button>
+          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+            {formMode === 'edit' ? (
+              <Popconfirm
+                title='Удалить информационную систему?'
+                description={editingRecord?.code}
+                okText='Удалить'
+                cancelText='Отмена'
+                okButtonProps={{ danger: true }}
+                onConfirm={handleDelete}
+              >
+                <Button danger icon={<DeleteOutlined />} loading={deleting}>Удалить</Button>
+              </Popconfirm>
+            ) : (
+              <span />
+            )}
+            <Space>
+              <Button onClick={() => { setFormDrawerOpen(false); form.resetFields() }}>Отмена</Button>
+              <Button type='primary' onClick={handleSave} loading={submitting}>
+                {formMode === 'create' ? 'Создать' : 'Сохранить'}
+              </Button>
+            </Space>
           </Space>
         }
         destroyOnClose

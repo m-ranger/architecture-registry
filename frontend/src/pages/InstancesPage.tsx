@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Alert, App, Button, Card, Descriptions, Drawer, Form, Input, Select, Space, Spin, Table, Tag, Typography } from 'antd'
-import { SearchOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
+import { Alert, App, Button, Card, Descriptions, Drawer, Form, Input, Popconfirm, Select, Space, Spin, Table, Tag, Typography } from 'antd'
+import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
 import { instancesApi, deploymentsApi, modulesApi, environmentsApi, serversApi, clustersApi } from '../api'
@@ -23,6 +23,7 @@ export default function InstancesPage() {
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
   const [submitting, setSubmitting] = useState(false)
   const [editingRecord, setEditingRecord] = useState<ModuleInstance | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [form] = Form.useForm<ModuleInstanceInput>()
 
   const getDeploymentTarget = (instanceId: string): string => {
@@ -81,6 +82,25 @@ export default function InstancesPage() {
       status: record.status,
     })
     setFormDrawerOpen(true)
+  }
+
+  /** Удаление доступно только в режиме редактирования — из формы изменений */
+  const handleDelete = async () => {
+    if (!editingRecord) return
+    try {
+      setDeleting(true)
+      await instancesApi.remove(editingRecord.id)
+      message.success(`Экземпляр «${editingRecord.name}» удалён`)
+      setFormDrawerOpen(false)
+      form.resetFields()
+      setEditingRecord(null)
+      setActive(null)
+      refetch()
+    } catch (err) {
+      message.error((err as ApiError)?.message ?? 'Не удалось удалить экземпляр модуля')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const filtered = useMemo(() => {
@@ -142,7 +162,7 @@ export default function InstancesPage() {
         open={!!active}
         onClose={() => setActive(null)}
         width={640}
-        extra={<Button icon={<EditOutlined />} size='small' onClick={() => active && handleEdit(active)}>Редактировать</Button>}
+        extra={<Button type='primary' icon={<EditOutlined />} onClick={() => active && handleEdit(active)}>Редактировать</Button>}
       >
         {active && (
           <Space direction='vertical' size={16} style={{ width: '100%' }}>
@@ -182,9 +202,25 @@ export default function InstancesPage() {
         width={560}
         destroyOnClose
         footer={
-          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-            <Button onClick={() => { setFormDrawerOpen(false); form.resetFields() }}>Отмена</Button>
-            <Button type='primary' loading={submitting} onClick={handleSave}>{formMode === 'create' ? 'Создать' : 'Сохранить'}</Button>
+          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+            {formMode === 'edit' ? (
+              <Popconfirm
+                title='Удалить экземпляр модуля?'
+                description={editingRecord?.name}
+                okText='Удалить'
+                cancelText='Отмена'
+                okButtonProps={{ danger: true }}
+                onConfirm={handleDelete}
+              >
+                <Button danger icon={<DeleteOutlined />} loading={deleting}>Удалить</Button>
+              </Popconfirm>
+            ) : (
+              <span />
+            )}
+            <Space>
+              <Button onClick={() => { setFormDrawerOpen(false); form.resetFields() }}>Отмена</Button>
+              <Button type='primary' loading={submitting} onClick={handleSave}>{formMode === 'create' ? 'Создать' : 'Сохранить'}</Button>
+            </Space>
           </Space>
         }
       >

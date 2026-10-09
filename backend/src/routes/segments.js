@@ -58,11 +58,22 @@ router.put('/:id', async (req, res, next) => {
   }
 });
 
+// DELETE /api/segments/:id — удалить сетевой сегмент
 router.delete('/:id', async (req, res, next) => {
   try {
     await deleteById(table, req.params.id);
     res.status(204).send();
   } catch (err) {
+    // 23503 — на запись ещё ссылаются зависимые объекты (FK объявлены ON DELETE RESTRICT)
+    if (err.code === '23503') {
+      return res.status(409).json({ error: 'Сегмент используется сетевыми интерфейсами — сначала удалите или переназначьте их' });
+    }
+    if (err.message === 'Not found') {
+      return res.status(404).json({ error: 'Сегмент не найден' });
+    }
+    if (err.code === '22P02') {
+      return res.status(400).json({ error: 'Некорректный идентификатор записи' });
+    }
     next(err);
   }
 });

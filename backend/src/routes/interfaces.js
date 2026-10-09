@@ -74,11 +74,21 @@ router.put('/:id', async (req, res, next) => {
   }
 });
 
+// DELETE /api/interfaces/:id — удалить сетевой интерфейс
 router.delete('/:id', async (req, res, next) => {
   try {
     await deleteById(table, req.params.id);
     res.status(204).send();
   } catch (err) {
+    if (err.code === '23503') {
+      return res.status(409).json({ error: 'На интерфейс ссылаются зависимые объекты реестра — сначала снимите связи' });
+    }
+    if (err.message === 'Not found') {
+      return res.status(404).json({ error: 'Сетевой интерфейс не найден' });
+    }
+    if (err.code === '22P02') {
+      return res.status(400).json({ error: 'Некорректный идентификатор записи' });
+    }
     next(err);
   }
 });

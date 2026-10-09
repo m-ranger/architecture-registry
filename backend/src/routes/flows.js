@@ -116,11 +116,21 @@ router.put('/:id', async (req, res, next) => {
   }
 });
 
+// DELETE /api/flows/:id — удалить информационный поток
 router.delete('/:id', async (req, res, next) => {
   try {
     await deleteById(table, req.params.id);
     res.status(204).send();
   } catch (err) {
+    if (err.code === '23503') {
+      return res.status(409).json({ error: 'На поток ссылаются зависимые объекты — сначала снимите связи' });
+    }
+    if (err.message === 'Not found') {
+      return res.status(404).json({ error: 'Информационный поток не найден' });
+    }
+    if (err.code === '22P02') {
+      return res.status(400).json({ error: 'Некорректный идентификатор записи' });
+    }
     next(err);
   }
 });

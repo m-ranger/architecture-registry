@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Alert, Button, Card, Drawer, Form, Input, Select, Space, Table, Tag, Typography, Spin, App } from 'antd'
-import { SearchOutlined, PlusOutlined, ExportOutlined, EditOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Drawer, Form, Input, Popconfirm, Select, Space, Table, Tag, Typography, Spin, App } from 'antd'
+import { SearchOutlined, PlusOutlined, ExportOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
 import { modulesApi, instancesApi, flowsApi, informationSystemsApi, environmentsApi, protocolsApi } from '../api'
@@ -25,6 +25,7 @@ export default function ModulesPage() {
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
   const [submitting, setSubmitting] = useState(false)
   const [editingRecord, setEditingRecord] = useState<ApplicationModule | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [form] = Form.useForm<ApplicationModuleInput>()
 const handleSave = async () => {
     try {
@@ -74,6 +75,25 @@ const handleSave = async () => {
       status: record.status,
     })
     setFormDrawerOpen(true)
+  }
+
+  /** Удаление доступно только в режиме редактирования — из формы изменений */
+  const handleDelete = async () => {
+    if (!editingRecord) return
+    try {
+      setDeleting(true)
+      await modulesApi.remove(editingRecord.id)
+      message.success(`Модуль «${editingRecord.code}» удалён`)
+      setFormDrawerOpen(false)
+      form.resetFields()
+      setEditingRecord(null)
+      setActive(null)
+      refetch()
+    } catch (err) {
+      message.error((err as ApiError)?.message ?? 'Не удалось удалить модуль')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const filtered = useMemo(() => {
@@ -135,7 +155,7 @@ const handleSave = async () => {
         extra={
           <Space>
             <Tag color='blue'>{active?.code}</Tag>
-            <Button icon={<EditOutlined />} onClick={() => active && handleEdit(active)} size='small'>
+            <Button type='primary' icon={<EditOutlined />} onClick={() => active && handleEdit(active)}>
               Редактировать
             </Button>
           </Space>
@@ -170,11 +190,27 @@ const handleSave = async () => {
         onClose={() => { setFormDrawerOpen(false); form.resetFields() }}
         width={560}
         footer={
-          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-            <Button onClick={() => { setFormDrawerOpen(false); form.resetFields() }}>Отмена</Button>
-            <Button type='primary' onClick={handleSave} loading={submitting}>
-              {formMode === 'create' ? 'Создать' : 'Сохранить'}
-            </Button>
+          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+            {formMode === 'edit' ? (
+              <Popconfirm
+                title='Удалить модуль?'
+                description={editingRecord?.code}
+                okText='Удалить'
+                cancelText='Отмена'
+                okButtonProps={{ danger: true }}
+                onConfirm={handleDelete}
+              >
+                <Button danger icon={<DeleteOutlined />} loading={deleting}>Удалить</Button>
+              </Popconfirm>
+            ) : (
+              <span />
+            )}
+            <Space>
+              <Button onClick={() => { setFormDrawerOpen(false); form.resetFields() }}>Отмена</Button>
+              <Button type='primary' onClick={handleSave} loading={submitting}>
+                {formMode === 'create' ? 'Создать' : 'Сохранить'}
+              </Button>
+            </Space>
           </Space>
         }
         destroyOnClose

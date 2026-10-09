@@ -48,6 +48,7 @@ export const informationSystemsApi = {
   getAll: () => api.get<InformationSystem[]>('/information-systems'),
   create: (payload: InformationSystemInput) => api.post<InformationSystem>('/information-systems', payload),
   update: (id: string, payload: InformationSystemInput) => api.put<InformationSystem>(`/information-systems/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/information-systems/${id}`),
 }
 
 /** Тело запроса на создание проекта (реестровый объект «Проект») */
@@ -66,6 +67,7 @@ export const projectsApi = {
   getFlows: (id: string) => api.get<InformationFlow[]>(`/projects/${id}/flows`),
   create: (payload: ProjectInput) => api.post<Project>('/projects', payload),
   update: (id: string, payload: ProjectInput) => api.put<Project>(`/projects/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/projects/${id}`),
 }
 
 /** Тело запроса на создание среды эксплуатации */
@@ -81,12 +83,14 @@ export const environmentsApi = {
   getAll: () => api.get<Environment[]>('/environments'),
   create: (payload: EnvironmentInput) => api.post<Environment>('/environments', payload),
   update: (id: string, payload: EnvironmentInput) => api.put<Environment>(`/environments/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/environments/${id}`),
 }
 
 export const modulesApi = {
   getAll: () => api.get<ApplicationModule[]>('/modules'),
   create: (payload: ApplicationModuleInput) => api.post<ApplicationModule>('/modules', payload),
   update: (id: string, payload: ApplicationModuleInput) => api.put<ApplicationModule>(`/modules/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/modules/${id}`),
 }
 
 /** Тело запроса на создание сервера */
@@ -101,6 +105,7 @@ export const serversApi = {
   getAll: () => api.get<Server[]>('/servers'),
   create: (payload: ServerInput) => api.post<Server>('/servers', payload),
   update: (id: string, payload: ServerInput) => api.put<Server>(`/servers/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/servers/${id}`),
 }
 
 /** Тело запроса на создание кластера */
@@ -117,6 +122,7 @@ export const clustersApi = {
   getAll: () => api.get<Cluster[]>('/clusters'),
   create: (payload: ClusterInput) => api.post<Cluster>('/clusters', payload),
   update: (id: string, payload: ClusterInput) => api.put<Cluster>(`/clusters/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/clusters/${id}`),
 }
 
 /** Тело запроса на создание экземпляра модуля */
@@ -134,6 +140,7 @@ export const instancesApi = {
   getAll: () => api.get<ModuleInstance[]>('/instances'),
   create: (payload: ModuleInstanceInput) => api.post<ModuleInstance>('/instances', payload),
   update: (id: string, payload: ModuleInstanceInput) => api.put<ModuleInstance>(`/instances/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/instances/${id}`),
 }
 
 /** Тело запроса на создание размещения (ровно одна цель: serverId XOR clusterId) */
@@ -151,6 +158,7 @@ export const deploymentsApi = {
   getAll: () => api.get<ModuleDeployment[]>('/deployments'),
   create: (payload: ModuleDeploymentInput) => api.post<ModuleDeployment>('/deployments', payload),
   update: (id: string, payload: ModuleDeploymentInput) => api.put<ModuleDeployment>(`/deployments/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/deployments/${id}`),
 }
 
 /** Тело запроса на создание сетевой зоны */
@@ -168,6 +176,7 @@ export const zonesApi = {
   getAll: () => api.get<NetworkZone[]>('/zones'),
   create: (payload: NetworkZoneInput) => api.post<NetworkZone>('/zones', payload),
   update: (id: string, payload: NetworkZoneInput) => api.put<NetworkZone>(`/zones/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/zones/${id}`),
 }
 
 /** Тело запроса на создание сетевого сегмента */
@@ -185,6 +194,7 @@ export const segmentsApi = {
   getAll: () => api.get<NetworkSegment[]>('/segments'),
   create: (payload: NetworkSegmentInput) => api.post<NetworkSegment>('/segments', payload),
   update: (id: string, payload: NetworkSegmentInput) => api.put<NetworkSegment>(`/segments/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/segments/${id}`),
 }
 
 /** Тело запроса на создание маршрутизатора */
@@ -202,6 +212,7 @@ export const routersApi = {
   getAll: () => api.get<Router[]>('/routers'),
   create: (payload: RouterInput) => api.post<Router>('/routers', payload),
   update: (id: string, payload: RouterInput) => api.put<Router>(`/routers/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/routers/${id}`),
 }
 
 /** Тело запроса на создание межсетевого экрана */
@@ -219,6 +230,7 @@ export const firewallsApi = {
   getAll: () => api.get<Firewall[]>('/firewalls'),
   create: (payload: FirewallInput) => api.post<Firewall>('/firewalls', payload),
   update: (id: string, payload: FirewallInput) => api.put<Firewall>(`/firewalls/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/firewalls/${id}`),
 }
 
 /** Тело запроса на создание сетевого интерфейса (владелец: server XOR router XOR firewall XOR cluster) */
@@ -247,6 +259,7 @@ export const interfacesApi = {
   getAll: () => api.get<NetworkInterface[]>('/interfaces'),
   create: (payload: NetworkInterfaceInput) => api.post<NetworkInterface>('/interfaces', payload),
   update: (id: string, payload: NetworkInterfaceInput) => api.put<NetworkInterface>(`/interfaces/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/interfaces/${id}`),
 }
 
 /** Тело запроса на создание протокола */
@@ -264,6 +277,7 @@ export const protocolsApi = {
   getAll: () => api.get<Protocol[]>('/protocols'),
   create: (payload: ProtocolInput) => api.post<Protocol>('/protocols', payload),
   update: (id: string, payload: ProtocolInput) => api.put<Protocol>(`/protocols/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/protocols/${id}`),
 }
 
 /** Тело запроса на создание информационного потока */
@@ -286,6 +300,7 @@ export const flowsApi = {
   getAll: () => api.get<InformationFlow[]>('/flows'),
   create: (payload: InformationFlowInput) => api.post<InformationFlow>('/flows', payload),
   update: (id: string, payload: InformationFlowInput) => api.put<InformationFlow>(`/flows/${id}`, payload),
+  remove: (id: string) => api.delete<void>(`/flows/${id}`),
 }
 
 /**
