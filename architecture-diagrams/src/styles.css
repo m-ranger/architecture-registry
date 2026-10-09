@@ -238,6 +238,65 @@ body {
   white-space: nowrap;
 }
 
+/* Узел размещения — контейнер: внутри рамки лежат экземпляры модулей (ТЗ §10.3) */
+.arch-node--container {
+  justify-content: flex-start;
+  gap: 0;
+  padding: 0;
+  background: rgba(245, 158, 11, 0.08);
+  border-width: 1.6px;
+}
+
+.arch-node__header {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px 10px 0 0;
+  background: #fff7ed;
+}
+
+/* Тело узла прозрачно: связи между экземплярами внутри узла остаются видимыми. */
+.arch-node__body {
+  flex: 1 1 auto;
+  position: relative;
+  margin: 0 10px 10px;
+  border: 1px dashed rgba(180, 83, 9, 0.35);
+  border-radius: 10px;
+}
+
+.arch-node__body-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: center;
+  color: #b45309;
+}
+
+.arch-node__count {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.arch-node__host {
+  font-size: 10px;
+  color: #7c5cff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .arch-status {
   font-size: 10px;
   padding: 1px 6px;

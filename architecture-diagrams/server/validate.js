@@ -1,4 +1,10 @@
 import pool from './db.js';
+import {
+  CONTAINER_HEADER,
+  CONTAINER_PADDING,
+  containerChildren,
+  isContainerNode,
+} from './layout.js';
 
 /**
  * Валидация схемы (ТЗ §17).
@@ -291,6 +297,60 @@ export async function validateGraph(graph, options = {}) {
             { nodeId: node.id },
           );
         }
+      }
+    }
+
+    // Инвариант схемы развертывания (ТЗ §10.3): экземпляр модуля находится внутри
+    // рамки своего узла размещения. Нарушение означает, что состав узла не
+    // согласован с рамкой — схему нужно перестроить автогенерацией.
+    for (const node of nodes) {
+      if (node.c4Type !== 'DeploymentInstance') continue;
+      const parent = node.parent ? byId.get(node.parent) : null;
+      if (!parent) {
+        add(
+          'WARNING',
+          'INSTANCE_WITHOUT_NODE',
+          `Экземпляр «${node.name}» не размещён на узле размещения`,
+          { nodeId: node.id },
+        );
+        continue;
+      }
+      if (!isContainerNode(parent)) continue;
+
+      const frame = {
+        x: parent.position.x,
+        y: parent.position.y,
+        width: parent.size?.width ?? 0,
+        height: parent.size?.height ?? 0,
+      };
+      const tolerance = 2;
+      const outside =
+        node.position.x < frame.x + CONTAINER_PADDING - tolerance ||
+        node.position.y < frame.y + CONTAINER_HEADER - tolerance ||
+        node.position.x + (node.size?.width ?? 0) >
+          frame.x + frame.width - CONTAINER_PADDING + tolerance ||
+        node.position.y + (node.size?.height ?? 0) >
+          frame.y + frame.height - CONTAINER_PADDING + tolerance;
+
+      if (outside) {
+        add(
+          'WARNING',
+          'INSTANCE_OUTSIDE_NODE',
+          `Экземпляр «${node.name}» выходит за рамку узла размещения «${parent.name}»`,
+          { nodeId: node.id },
+        );
+      }
+
+      // Рамка узла должна быть растянута под состав: иначе узел не «расширяется»
+      // под свои экземпляры и схема читается неверно.
+      const frameRequired = containerChildren(parent, nodes).length > 0;
+      if (frameRequired && frame.height < CONTAINER_HEADER + CONTAINER_PADDING * 2) {
+        add(
+          'INFO',
+          'NODE_FRAME_COLLAPSED',
+          `Рамка узла «${parent.name}» не растянута под состав экземпляров`,
+          { nodeId: parent.id },
+        );
       }
     }
 

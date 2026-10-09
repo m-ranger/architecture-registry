@@ -1,4 +1,5 @@
 import pool from './db.js';
+import { normalizeContainers } from './layout.js';
 
 /**
  * Репозиторий диаграмм (ТЗ §7, §8, §18).
@@ -263,7 +264,11 @@ const CHUNK = 100;
  * Выполняется на одном клиенте, поэтому схема никогда не остаётся частично записанной.
  */
 async function writeGraph(client, diagramId, graph) {
-  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  // Инвариант схемы развертывания соблюдается и на записи: экземпляры модулей
+  // находятся внутри рамки своего узла размещения (ТЗ §10.3). Нормализованный
+  // граф возвращается в ответе API, поэтому canvas и хранилище согласованы.
+  const nodes = normalizeContainers(Array.isArray(graph?.nodes) ? graph.nodes : []);
+  if (graph) graph.nodes = nodes;
   const edges = Array.isArray(graph?.edges) ? graph.edges : [];
 
   await client.query(`DELETE FROM architecture_diagram_relationship WHERE diagram_id = $1`, [diagramId]);

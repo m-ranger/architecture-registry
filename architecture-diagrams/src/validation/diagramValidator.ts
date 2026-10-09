@@ -1,5 +1,12 @@
 import type { ArchGraph, IssueSeverity, ValidationIssue, ValidationResult } from '../model/diagramTypes'
 import { isBoundary } from '../model/diagramTypes'
+import { C4_TYPE } from '../model/c4Types'
+import {
+  CONTAINER_HEADER,
+  CONTAINER_PADDING,
+  isContainerNode,
+  nodeSize,
+} from '../layout/layoutService'
 
 /**
  * Клиентская предварительная проверка схемы (ТЗ §17).
@@ -43,6 +50,41 @@ export function validateDiagram(graph: ArchGraph): ValidationResult {
       }
       seen.add(current)
       current = parents.get(current) || null
+    }
+  }
+
+  // Схема развертывания (ТЗ §10.3): экземпляр модуля лежит внутри рамки своего
+  // узла размещения, а рамка узла растянута под состав.
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  for (const node of nodes) {
+    if (node.c4Type !== C4_TYPE.DEPLOYMENT_INSTANCE) continue
+    const host = node.parent ? byId.get(node.parent) : null
+    if (!host) {
+      add('WARNING', 'INSTANCE_WITHOUT_NODE', `Экземпляр «${node.name}» не размещён на узле размещения`, {
+        nodeId: node.id,
+      })
+      continue
+    }
+    if (!isContainerNode(host)) continue
+
+    const frame = { position: host.position, size: nodeSize(host) }
+    const size = nodeSize(node)
+    const tolerance = 2
+    const outside =
+      node.position.x < frame.position.x + CONTAINER_PADDING - tolerance ||
+      node.position.y < frame.position.y + CONTAINER_HEADER - tolerance ||
+      node.position.x + size.width >
+        frame.position.x + frame.size.width - CONTAINER_PADDING + tolerance ||
+      node.position.y + size.height >
+        frame.position.y + frame.size.height - CONTAINER_PADDING + tolerance
+
+    if (outside) {
+      add(
+        'WARNING',
+        'INSTANCE_OUTSIDE_NODE',
+        `Экземпляр «${node.name}» выходит за рамку узла размещения «${host.name}»`,
+        { nodeId: node.id },
+      )
     }
   }
 

@@ -29,14 +29,14 @@
 | §6 C4 mapping | `server/graph.js`: `information_system → SoftwareSystem`, `application_module → Container`, `module_instance → DeploymentInstance`, `server/cluster → DeploymentNode`, `environment → EnvironmentBoundary`, `information_flow → Relationship`, `protocol → technology` |
 | §7, §8 Модель данных | `server/schema.sql`: `architecture_diagram`, `architecture_diagram_element`, `architecture_diagram_relationship`, `diagram_version` |
 | §9 FR-001…FR-018 | создание, автогенерация, редактирование, registry refs, потоки, поиск, аннотации, фильтры типа, layout, атомарное сохранение, версии, публикация, экспорт, навигация в реестр, валидация, RBAC, audit-поля, sync |
-| §10 Правила генерации | три генератора: System Context (агрегация между ИС), Container (модули ИС + внешние ИС), Deployment (контуры → узлы → экземпляры) |
+| §10 Правила генерации | три генератора: System Context (агрегация между ИС), Container (модули ИС + внешние ИС), Deployment (контуры → узлы размещения → экземпляры): экземпляры укладываются внутрь рамки своего узла, а рамка узла расширяется под состав (см. «Узлы размещения и их состав») |
 | §11 UI/UX | верхний тулбар, левая палитра и поиск реестра, canvas React Flow, правая панель свойств, нижняя строка статуса, панель «Потоки области», `Ctrl+S / Delete / Ctrl+Z / Ctrl+Y`, мультивыбор |
 | §12 API | `GET/POST /api/diagrams`, `GET/PUT/DELETE /api/diagrams/{id}`, `/generate`, `/flows`, `/validate`, `/publish`, `/versions`, `/versions/{no}`, `/export`, `/api/registry/*` |
 | §13 Автогенерация и sync | `mode=REBUILD` (перестраивает layout) и `mode=SYNC` (сохраняет ручные координаты) |
 | §14 Раскладка | `server/layout.js` — слоистый layout; локальная раскладка на клиенте (`src/layout/layoutService.ts`); ручные координаты не перезаписываются без явного действия |
 | §15 Экспорт | `server/exporter.js` (SVG, PlantUML, Mermaid, JSON) + `src/export/exportService.ts` (PNG/PDF из того же серверного SVG) |
 | §16 RBAC | `server/index.js` — матрица ADMIN / ARCHITECT / ANALYST / OWNER / OBSERVER, проверка на backend, `403` при отсутствии права |
-| §17 Валидация | `server/validate.js` — существование registry ref, соответствие C4-типу, endpoints связей, статус и порт потока, протокол, loopback, циклы иерархии, RETIRED-объекты, изолированные узлы |
+| §17 Валидация | `server/validate.js` — существование registry ref, соответствие C4-типу, endpoints связей, статус и порт потока, протокол, loopback, циклы иерархии, RETIRED-объекты, изолированные узлы, состав узлов размещения (`INSTANCE_OUTSIDE_NODE`, `INSTANCE_WITHOUT_NODE`, `NODE_FRAME_COLLAPSED`) |
 | §18 Версии и публикация | `Draft → Validation → Published → Archived`; опубликованный snapshot неизменяем; правки возвращают схему в Draft; флаг «есть изменения зависимостей» |
 | §20 НФТ | bulk-вставка чанками по 100 узлов/связей, транзакционное сохранение, пакетная проверка ссылок |
 | §22 Структура frontend | `src/api`, `src/model`, `src/editor`, `src/nodes`, `src/edges`, `src/layout`, `src/validation`, `src/export` |
@@ -269,4 +269,73 @@ curl "http://localhost:8082/api/diagrams/ARCH-PRJ-A24-8394-DEPLOY-PROD/flows"
 Отчёт «Сетевые взаимодействия» (раздел «Отчеты» основного приложения) отвечает на
 тот же вопрос в табличном виде: «с какого адреса на какой» по всем потокам реестра
 (`GET /api/reports/network-interactions`, см. `docs/reports-network-interactions-v1.0.md`).
+
+
+## Узлы размещения и их состав (схема развертывания)
+
+Схема развертывания читается по уровням C4: **контур среды → узел размещения →
+экземпляр модуля**. Узел размещения (`server` / `cluster`, C4 `DeploymentNode`) —
+контейнер: он расширяется под свой состав, а все его экземпляры
+(`module_deployment`, C4 `DeploymentInstance`) находятся внутри его рамки.
+
+Правило одно и то же на всех уровнях модуля — `server/layout.js` (генератор,
+нормализация, экспорт) и `src/layout/layoutService.ts` (canvas и локальная
+раскладка):
+
+| Что | Как считается |
+| --- | --- |
+| рамка узла размещения | `max(типовой размер C4, состав + отступ 16 px)`; растёт вправо и вниз, а позиция узла остаётся ручной координатой пользователя (ТЗ §14) |
+| «шапка» узла | 84 px: название, технология, адреса развёртывания, счётчик состава, статус |
+| экземпляры | сетка внутри рамки: до 3 экземпляров — одна колонка («стойка»), дальше — 2–3 колонки, чтобы узел не вытягивался в бесконечную полосу |
+| узел без состава | типовой размер 270 × 120 — как у пустого узла C4 |
+
+Поведение в редакторе:
+
+* узел размещения перетаскивается вместе со своим составом, а экземпляр не может
+  выйти за «шапку» и левую границу узла — рамка растягивается за ним;
+* удаление узла размещения снимает и его экземпляры (состав узла — часть узла);
+* экземпляр, перенесённый внутрь рамки другого узла, меняет узел размещения
+  автоматически; то же самое — селектом «Узел размещения» на панели свойств;
+* кнопка «Авто-раскладка» (`localLayout`) раскладывает узлы по контурам сред и
+  укладывает экземпляры внутрь узлов, не перезаписывая состав вручную;
+* инвариант соблюдается и на сервере: `writeGraph` нормализует состав при
+  сохранении, поэтому в хранилище не бывает экземпляров вне узла размещения.
+
+Валидация (`server/validate.js`, `src/validation/diagramValidator.ts`) сообщает о
+нарушении инварианта — так выглядит схема, сохранённая до этих правил:
+
+| Код | Уровень | Что обнаружено |
+| --- | --- | --- |
+| `INSTANCE_OUTSIDE_NODE` | WARNING | экземпляр выходит за рамку своего узла размещения |
+| `INSTANCE_WITHOUT_NODE` | WARNING | у экземпляра нет узла размещения |
+| `NODE_FRAME_COLLAPSED` | INFO | рамка узла не растянута под состав |
+
+Экспорт отвечает тем же правилам: `SVG` рисует рамку узла с шапкой и составом
+внутри (шапка непрозрачная, тело — полупрозрачное, чтобы связи между
+экземплярами внутри узла оставались видимыми), `PlantUML` и `Mermaid` вкладывают
+экземпляры в блок узла размещения.
+
+Проверка на живых данных реестра:
+
+```bash
+# Схема развертывания перестраивается по данным реестра: состав укладывается в узлы
+curl -X POST http://localhost:8082/api/diagrams/di1/generate \
+  -H "Content-Type: application/json" -H "x-user-role: ARCHITECT" -d "{\"mode\":\"REBUILD\"}"
+
+# Каждый экземпляр лежит внутри рамки своего узла размещения
+curl -s http://localhost:8082/api/diagrams/di1 -H "x-user-role: ARCHITECT" | node -e "
+let raw='';process.stdin.on('data',(d)=>raw+=d).on('end',()=>{
+  const nodes=JSON.parse(raw).graph.nodes, by=new Map(nodes.map((n)=>[n.id,n]));
+  for (const n of nodes) {
+    if (n.c4Type!=='DeploymentInstance') continue;
+    const p=by.get(n.parent);
+    const inside = n.position.x>=p.position.x && n.position.y>=p.position.y &&
+      n.position.x+n.size.width<=p.position.x+p.size.width &&
+      n.position.y+n.size.height<=p.position.y+p.size.height;
+    console.log(n.name, 'внутри', p.name, inside);
+  }
+});"
+```
+
+Ожидаемый вывод — по строке на экземпляр, все `true`.
 

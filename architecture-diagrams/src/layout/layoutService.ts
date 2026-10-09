@@ -1,5 +1,6 @@
 import type { ArchEdge, ArchNode } from '../model/diagramTypes'
 import { isBoundary } from '../model/diagramTypes'
+import { C4_TYPE } from '../model/c4Types'
 
 /**
  * Раскладка и геометрия (ТЗ §14).
@@ -16,6 +17,36 @@ export interface Box {
 
 export const BOUNDARY_PADDING = 26
 export const BOUNDARY_HEADER = 24
+
+/**
+ * Узел размещения — контейнер экземпляров модулей (ТЗ §10.3).
+ * Правила совпадают с серверной раскладкой (server/layout.js): рамка узла
+ * считается по составу, а состав притягивается внутрь рамки.
+ */
+export const CONTAINER_PADDING = 16
+export const CONTAINER_HEADER = 84
+export const CONTAINER_GAP = 12
+export const CONTAINER_MIN_WIDTH = 270
+export const CONTAINER_MIN_HEIGHT = 120
+const CONTAINER_MAX_COLUMNS = 3
+
+export const isContainerNode = (node: ArchNode | null | undefined): boolean =>
+  Boolean(node) && node!.c4Type === C4_TYPE.DEPLOYMENT_NODE
+
+/** Экземпляр модуля на узле размещения. */
+export const isInstanceNode = (node: ArchNode): boolean => node.c4Type === C4_TYPE.DEPLOYMENT_INSTANCE
+
+/** Размер узла: экземпляр — типовой карточкой, узел размещения — по рамке. */
+export function nodeSize(node: ArchNode): { width: number; height: number } {
+  return {
+    width: node.size?.width || (isContainerNode(node) ? CONTAINER_MIN_WIDTH : 230),
+    height: node.size?.height || (isContainerNode(node) ? CONTAINER_MIN_HEIGHT : 88),
+  }
+}
+
+/** Экземпляры, размещённые на узле (прямые дети-экземпляры). */
+export const containerChildren = (nodes: ArchNode[], containerId: string): ArchNode[] =>
+  nodes.filter((node) => node.parent === containerId && node.c4Type === C4_TYPE.DEPLOYMENT_INSTANCE)
 
 const unionBox = (a: Box, b: Box): Box => {
   const x = Math.min(a.x, b.x)
@@ -181,3 +212,201 @@ export function localLayeredLayout(
   }
   return positions
 }
+
+// ---------------------------------------------------------------------------
+// Узлы размещения и их состав (ТЗ §10.3)
+// Схема развертывания читается как «контур среды → узел размещения → экземпляр»:
+// узел размещения расширяется под свой состав, а экземпляры модулей всегда лежат
+// внутри рамки узла. Те же правила и константы — на сервере (server/layout.js).
+// ---------------------------------------------------------------------------
+
+export interface ContainerFrame {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface ContainerPacking {
+  placements: { id: string; x: number; y: number }[]
+  width: number
+  height: number
+  rows: number
+  columns: number
+}
+
+/**
+ * Сетка экземпляров внутри рамки узла: короткий состав — одна колонка («стойка»),
+ * длинный — до трёх, чтобы узел не вытягивался в бесконечную полосу.
+ */
+export function packContainerChildren(children: ArchNode[]): ContainerPacking {
+  // Узел без состава имеет типовой размер C4-карточки: рамка растёт только под экземпляры.
+  if (children.length === 0) {
+    return {
+      placements: [],
+      rows: 0,
+      columns: 0,
+      width: CONTAINER_MIN_WIDTH,
+      height: CONTAINER_MIN_HEIGHT,
+    }
+  }
+
+  const sizes = children.map(nodeSize)
+  const columns = children.length <= 3 ? 1 : children.length <= 8 ? 2 : CONTAINER_MAX_COLUMNS
+  const columnWidth = Math.max(230, ...sizes.map((size) => size.width))
+  const rowHeight = Math.max(88, ...sizes.map((size) => size.height))
+  const rows = Math.max(1, Math.ceil(children.length / columns))
+
+  return {
+    placements: children.map((child, index) => ({
+      id: child.id,
+      x: CONTAINER_PADDING + (index % columns) * (columnWidth + CONTAINER_GAP),
+      y:
+        CONTAINER_HEADER +
+        CONTAINER_PADDING +
+        Math.floor(index / columns) * (rowHeight + CONTAINER_GAP),
+    })),
+    rows,
+    columns,
+    width: Math.max(
+      CONTAINER_MIN_WIDTH,
+      CONTAINER_PADDING * 2 + columns * columnWidth + (columns - 1) * CONTAINER_GAP,
+    ),
+    height: Math.max(
+      CONTAINER_MIN_HEIGHT,
+      CONTAINER_HEADER + CONTAINER_PADDING * 2 + rows * rowHeight + (rows - 1) * CONTAINER_GAP,
+    ),
+  }
+}
+
+/**
+ * Рамка узла размещения: расширяется под состав экземпляров.
+ * Позиция узла — ручная координата пользователя (ТЗ §14), поэтому рамка растёт
+ * вправо и вниз, а состав притягивается внутрь за «шапку» и левую границу.
+ */
+export function containerFrame(container: ArchNode, children: ArchNode[]): ContainerFrame {
+  const base = nodeSize(container)
+  let width = Math.max(CONTAINER_MIN_WIDTH, base.width)
+  let height = Math.max(CONTAINER_MIN_HEIGHT, base.height)
+  for (const child of children) {
+    const size = nodeSize(child)
+    width = Math.max(width, child.position.x + size.width + CONTAINER_PADDING - container.position.x)
+    height = Math.max(
+      height,
+      child.position.y + size.height + CONTAINER_PADDING - container.position.y,
+    )
+  }
+  return { x: container.position.x, y: container.position.y, width, height }
+}
+
+/**
+ * Нормализация состава узлов размещения (ТЗ §10.3): экземпляры внутри рамки узла,
+ * рамка растянута под состав. Идемпотентна — на согласованной схеме ничего не меняет.
+ */
+export function normalizeContainers(nodes: ArchNode[]): ArchNode[] {
+  if (!nodes.some((node) => isContainerNode(node))) return nodes
+
+  const result = nodes.map((node) => ({
+    ...node,
+    position: { x: node.position.x, y: node.position.y },
+    size: { ...nodeSize(node) },
+  }))
+
+  for (const container of result.filter((node) => isContainerNode(node))) {
+    const children = containerChildren(result, container.id)
+    for (const child of children) {
+      // Экземпляр не входит в «шапку» узла и не выходит за его левую границу.
+      child.position.x = Math.max(child.position.x, container.position.x + CONTAINER_PADDING)
+      child.position.y = Math.max(child.position.y, container.position.y + CONTAINER_HEADER)
+    }
+    const frame = containerFrame(container, children)
+    container.size = { width: frame.width, height: frame.height }
+  }
+  return result
+}
+
+/**
+ * Раскладка схемы развертывания: контуры сред → узлы размещения → экземпляры.
+ * Совпадает с серверной раскладкой (server/layout.js, deploymentLayout).
+ */
+export function localDeploymentLayout(nodes: ArchNode[]): {
+  positions: Record<string, { x: number; y: number }>
+  sizes: Record<string, { width: number; height: number }>
+} {
+  const marginX = 80
+  const marginY = 80
+  const nodeGap = 90
+  const groupGap = 90
+  const maxPerRow = 3
+
+  const positions: Record<string, { x: number; y: number }> = {}
+  const sizes: Record<string, { width: number; height: number }> = {}
+
+  // Узел размещения принадлежит контуру среды: контур задаёт полосу раскладки.
+  const groups = new Map<string, ArchNode[]>()
+  for (const container of nodes.filter((node) => isContainerNode(node))) {
+    const key = container.parent || '__root__'
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(container)
+  }
+
+  let cursorY = marginY
+  for (const group of groups.values()) {
+    let cursorX = marginX
+    let rowY = cursorY
+    let rowHeight = 0
+    let placed = 0
+    for (const container of group) {
+      const packed = packContainerChildren(containerChildren(nodes, container.id))
+      positions[container.id] = { x: cursorX, y: rowY }
+      sizes[container.id] = { width: packed.width, height: packed.height }
+      for (const placement of packed.placements) {
+        positions[placement.id] = { x: cursorX + placement.x, y: rowY + placement.y }
+      }
+      rowHeight = Math.max(rowHeight, packed.height)
+      cursorX += packed.width + nodeGap
+      placed += 1
+      if (placed % maxPerRow === 0) {
+        rowY += rowHeight + groupGap
+        rowHeight = 0
+        cursorX = marginX
+      }
+    }
+    cursorY = rowY + rowHeight + groupGap
+  }
+
+  // Элементы вне узлов размещения (аннотации, свободные экземпляры) — ниже полос сред.
+  let orphanY = cursorY
+  for (const node of nodes) {
+    if (isBoundary(node.c4Type) || positions[node.id]) continue
+    positions[node.id] = { x: marginX, y: orphanY }
+    orphanY += nodeSize(node).height + 30
+  }
+
+  return { positions, sizes }
+}
+
+/**
+ * Локальная раскладка кнопки «Авто-раскладка» (ТЗ §14).
+ * Схема развертывания укладывается по узлам размещения, остальные схемы —
+ * прежней слоистой раскладкой.
+ */
+export function localLayout(nodes: ArchNode[], edges: ArchEdge[]): ArchNode[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const isDeployment = nodes.some((node) => node.parent && isContainerNode(byId.get(node.parent)))
+
+  if (isDeployment) {
+    const { positions, sizes } = localDeploymentLayout(nodes)
+    return normalizeContainers(
+      nodes.map((node) => ({
+        ...node,
+        position: positions[node.id] ?? node.position,
+        size: sizes[node.id] ?? node.size,
+      })),
+    )
+  }
+
+  const positions = localLayeredLayout(nodes, edges)
+  return nodes.map((node) => (positions[node.id] ? { ...node, position: positions[node.id] } : node))
+}
+

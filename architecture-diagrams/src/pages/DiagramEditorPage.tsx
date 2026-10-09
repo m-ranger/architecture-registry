@@ -13,7 +13,16 @@ import { PropertiesPanel } from '../editor/PropertiesPanel'
 import { ValidationPanel } from '../editor/ValidationPanel'
 import { FlowsPanel } from '../editor/FlowsPanel'
 import { buildIssueIndex, validateDiagram } from '../validation/diagramValidator'
-import { localLayeredLayout, nextFreePosition } from '../layout/layoutService'
+import {
+  CONTAINER_HEADER,
+  CONTAINER_PADDING,
+  containerChildren,
+  isContainerNode,
+  localLayout,
+  nextFreePosition,
+  normalizeContainers,
+  packContainerChildren,
+} from '../layout/layoutService'
 import { makeAnnotationNode, makeRegistryNode, type SearchItem } from '../model/registryRefs'
 import type {
   ArchEdge,
@@ -139,7 +148,10 @@ export function DiagramEditorPage() {
     void (async () => {
       const payload = await load()
       if (payload) {
-        setValidation(validateDiagram(payload.graph))
+        // Схема из хранилища приводится к правилам состава узлов размещения (ТЗ §10.3).
+        const next = { ...payload.graph, nodes: normalizeContainers(payload.graph.nodes) }
+        setGraph(next)
+        setValidation(validateDiagram(next))
         await Promise.all([refreshVersions(), refreshScopeFlows()])
       }
     })()
@@ -185,10 +197,15 @@ export function DiagramEditorPage() {
     setDirty(true)
   }
 
+  /**
+   * Применение ответа API: граф приводится к правилам состава узлов размещения —
+   * экземпляры модулей лежат внутри рамки своего узла (ТЗ §10.3).
+   */
   const applyPayload = (payload: { diagram: DiagramMeta; graph: ArchGraph }) => {
+    const next = { ...payload.graph, nodes: normalizeContainers(payload.graph.nodes) }
     setMeta(payload.diagram)
-    setGraph(payload.graph)
-    setValidation(validateDiagram(payload.graph))
+    setGraph(next)
+    setValidation(validateDiagram(next))
     setDirty(false)
     setHistory([])
     setFuture([])
@@ -403,7 +420,34 @@ export function DiagramEditorPage() {
 
   const handleUpdateNode = (nodeId: string, patch: Partial<ArchNode>) => {
     if (!graph) return
-    commit({ ...graph, nodes: graph.nodes.map((node) => (node.id === nodeId ? { ...node, ...patch } : node)) })
+    const model = graph.nodes.find((node) => node.id === nodeId)
+    if (!model) return
+    let nodes = graph.nodes.map((node) => (node.id === nodeId ? { ...node, ...patch } : node))
+
+    // Смена узла размещения: экземпляр переносится внутрь рамки нового узла (ТЗ §10.3),
+    // иначе он оказался бы вне состава узла.
+    if (patch.parent && patch.parent !== model.parent) {
+      const container = nodes.find((node) => node.id === patch.parent)
+      if (container && isContainerNode(container)) {
+        const slot = packContainerChildren(containerChildren(nodes, container.id)).placements.find(
+          (placement) => placement.id === nodeId,
+        )
+        const offset = slot || { x: CONTAINER_PADDING, y: CONTAINER_HEADER + CONTAINER_PADDING }
+        nodes = nodes.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                position: {
+                  x: container.position.x + offset.x,
+                  y: container.position.y + offset.y,
+                },
+              }
+            : node,
+        )
+      }
+    }
+
+    commit({ ...graph, nodes: normalizeContainers(nodes) })
   }
 
   const handleUpdateEdge = (edgeId: string, patch: Partial<ArchEdge>) => {
@@ -414,10 +458,16 @@ export function DiagramEditorPage() {
   const handleRemove = (kind: 'node' | 'edge', itemId: string) => {
     if (!graph) return
     if (kind === 'node') {
+      // Узел размещения удаляется вместе со своим составом: экземпляр без узла
+      // размещения не имеет смысла (ТЗ §10.3).
+      const removed = new Set([
+        itemId,
+        ...containerChildren(graph.nodes, itemId).map((node) => node.id),
+      ])
       commit({
         ...graph,
-        nodes: graph.nodes.filter((node) => node.id !== itemId),
-        edges: graph.edges.filter((edge) => edge.source !== itemId && edge.target !== itemId),
+        nodes: graph.nodes.filter((node) => !removed.has(node.id)),
+        edges: graph.edges.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target)),
       })
       setSelectedNodeId(null)
       return
@@ -426,16 +476,13 @@ export function DiagramEditorPage() {
     setSelectedEdgeId(null)
   }
 
-  /** Локальная раскладка кнопки «Layout» (ТЗ §14). */
+  /**
+   * Локальная раскладка кнопки «Layout» (ТЗ §14).
+   * Схема развертывания укладывается по узлам размещения: экземпляры — внутри узла.
+   */
   const handleAutoLayout = () => {
     if (!graph || !canEdit) return
-    const positions = localLayeredLayout(graph.nodes, graph.edges)
-    commit({
-      ...graph,
-      nodes: graph.nodes.map((node) =>
-        positions[node.id] ? { ...node, position: positions[node.id] } : node,
-      ),
-    })
+    commit({ ...graph, nodes: localLayout(graph.nodes, graph.edges) })
   }
 
   const handleOpenRegistry = (ref: RegistryRef) => {
@@ -562,6 +609,7 @@ export function DiagramEditorPage() {
           <PropertiesPanel
             node={selectedNode}
             edge={selectedEdge}
+            nodes={graph.nodes}
             canEdit={canEdit}
             onUpdateNode={handleUpdateNode}
             onUpdateEdge={handleUpdateEdge}

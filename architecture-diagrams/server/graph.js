@@ -12,7 +12,14 @@ import {
   ownerAddressKey,
   ADDRESS_ROLE_PRIORITY,
 } from './registry.js';
-import { layeredLayout, gridLayout } from './layout.js';
+import {
+  layeredLayout,
+  gridLayout,
+  deploymentLayout,
+  normalizeContainers,
+  isBoundaryType,
+  isContainerNode,
+} from './layout.js';
 
 /**
  * C4 mapping и генератор внутренней графовой модели (ТЗ §6, §10, §13).
@@ -194,11 +201,45 @@ export async function loadAddresses(deployments, environmentId) {
   return index;
 }
 
-/** Ранжированная раскладка с учётом границ (границы считаются из детей на клиенте). */
+/**
+ * Раскладка графа (ТЗ §14).
+ * Схема развертывания укладывается по уровням «контур среды → узел размещения →
+ * экземпляр»: экземпляры находятся внутри рамки узла, а рамка растягивается под
+ * состав (ТЗ §10.3). Остальные схемы сохраняют прежнее поведение: иерархия —
+ * сетка, плоская схема — слоистая раскладка. Границы контуров считаются из
+ * состава на клиенте и в экспорте.
+ * @returns {Array} узлы графа (возможно, новый массив — состав нормализован)
+ */
 function applyLayout(nodes, edges, existingPositions = null) {
-  const placeable = nodes.filter(
-    (n) => n.c4Type !== C4_TYPE.SYSTEM_BOUNDARY && n.c4Type !== C4_TYPE.ENVIRONMENT_BOUNDARY,
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  // Узел размещения среди родителей означает схему развертывания.
+  const isDeployment = nodes.some(
+    (node) => !isBoundaryType(node.c4Type) && isContainerNode(byId.get(node.parent)),
   );
+
+  if (isDeployment) {
+    const { positions, sizes } = deploymentLayout(nodes);
+    for (const node of nodes) {
+      // Режим SYNC сохраняет ручные координаты пользователя (ТЗ §13).
+      const preserved = existingPositions?.[node.id];
+      if (preserved) {
+        node.position = { x: preserved.x, y: preserved.y };
+        continue;
+      }
+      const computed = positions[node.id];
+      if (!computed) {
+        node.position = { x: 80, y: 80 };
+        continue;
+      }
+      node.position = computed;
+      // Размер узла размещения принадлежит раскладке: он считается по составу.
+      if (sizes[node.id]) node.size = { ...sizes[node.id] };
+    }
+    // Инвариант соблюдается и в режиме SYNC: состав всегда внутри узла.
+    return normalizeContainers(nodes);
+  }
+
+  const placeable = nodes.filter((n) => !isBoundaryType(n.c4Type));
   const hasHierarchy = placeable.some((n) => n.parent);
   const positions = hasHierarchy
     ? gridLayout(placeable, { columns: 3, colGap: 320, rowGap: 200 })
@@ -214,6 +255,7 @@ function applyLayout(nodes, edges, existingPositions = null) {
     const preserved = existingPositions?.[node.id];
     node.position = preserved ? { x: preserved.x, y: preserved.y } : computed;
   }
+  return nodes;
 }
 
 /** Типы области (scope) схемы: информационная система или проект (ТЗ §10, §12). */
@@ -726,7 +768,9 @@ export async function generateGraph({
 
   const ctx = await loadScope(scopeType, scopeId, { environmentId });
   const { nodes, edges } = await generator(ctx);
-  applyLayout(nodes, edges, mode === 'SYNC' ? existingPositions : null);
+  // Раскладка возвращает узлы: для схемы развертывания состав узлов нормализуется
+  // (экземпляры оказываются внутри рамки своего узла размещения, ТЗ §10.3).
+  const laidOutNodes = applyLayout(nodes, edges, mode === 'SYNC' ? existingPositions : null);
 
   return {
     schemaVersion: '1.0',
@@ -734,7 +778,7 @@ export async function generateGraph({
       type: diagramType.toLowerCase(),
       scope: { objectType: scopeType, objectId: scopeId },
     },
-    nodes,
+    nodes: laidOutNodes,
     edges,
   };
 }

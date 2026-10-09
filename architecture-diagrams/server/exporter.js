@@ -23,6 +23,13 @@ const escapeXml = (value) =>
 
 const isBoundary = (c4Type) => c4Type === 'SystemBoundary' || c4Type === 'EnvironmentBoundary';
 
+/** Узел размещения — контейнер для экземпляров модулей (ТЗ §10.3). */
+const isContainer = (c4Type) => c4Type === 'DeploymentNode';
+
+/** Отступ состава от рамки узла и высота «шапки» узла — как на canvas. */
+const CONTAINER_PADDING = 16;
+const CONTAINER_HEADER = 84;
+
 const sanitizeKey = (value) => String(value ?? '').replace(/[^A-Za-z0-9_]/g, '_');
 
 /** Обрезка длинного текста под ширину карточки. */
@@ -103,16 +110,29 @@ function buildBoxes(nodes) {
     if (!box) continue;
     if (isBoundary(node.c4Type)) {
       const padding = 26;
-      const hasChildren = (childrenOf.get(node.id) || []).length > 0;
       boxes.set(node.id, {
         x: box.x - padding,
-        y: box.y - padding - (hasChildren ? 0 : 0),
+        y: box.y - padding,
         w: box.w + padding * 2,
         h: box.h + padding * 2,
       });
-    } else {
-      boxes.set(node.id, box);
+      continue;
     }
+    if (isContainer(node.c4Type)) {
+      // Рамка узла размещения растягивается под состав экземпляров: позиция узла
+      // не смещается, рамка растёт вправо и вниз (ТЗ §10.3).
+      let w = Math.max(Number(node.size?.width) || 0, CONTAINER_PADDING * 2 + 230);
+      let h = Math.max(Number(node.size?.height) || 0, CONTAINER_HEADER);
+      for (const child of childrenOf.get(node.id) || []) {
+        const childBox = nodeBbox(child.id, byId, childrenOf, cache);
+        if (!childBox) continue;
+        w = Math.max(w, childBox.x + childBox.w + CONTAINER_PADDING - node.position.x);
+        h = Math.max(h, childBox.y + childBox.h + CONTAINER_PADDING - node.position.y);
+      }
+      boxes.set(node.id, { x: node.position.x, y: node.position.y, w, h });
+      continue;
+    }
+    boxes.set(node.id, box);
   }
   return boxes;
 }
@@ -223,35 +243,85 @@ export function exportSvg(graph, meta = {}) {
     }
   }
 
-  // 3. Узлы.
+  // 3. Узлы: узлы размещения рисуются первыми, их состав — экземпляры — поверх
+  // рамки узла (ТЗ §10.3). Порядок задаёт глубина вложенности.
+  const childrenOf = new Map();
   for (const node of nodes) {
-    if (isBoundary(node.c4Type)) continue;
+    if (!node.parent) continue;
+    if (!childrenOf.has(node.parent)) childrenOf.set(node.parent, []);
+    childrenOf.get(node.parent).push(node);
+  }
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const depthOf = (node) => {
+    let depth = 0;
+    let current = node.parent ? byId.get(node.parent) : null;
+    while (current && depth < 100) {
+      depth += 1;
+      current = current.parent ? byId.get(current.parent) : null;
+    }
+    return depth;
+  };
+  const drawableNodes = nodes
+    .filter((node) => !isBoundary(node.c4Type))
+    .sort((a, b) => depthOf(a) - depthOf(b));
+
+  for (const node of drawableNodes) {
     const box = boxes.get(node.id);
     if (!box) continue;
     const style = VARIANT_STYLE[node.style?.variant] || VARIANT_STYLE.application;
+    const container = isContainer(node.c4Type);
+    const childCount = container ? (childrenOf.get(node.id) || []).length : 0;
     parts.push(
       `<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="12" ` +
-        `fill="${style.fill}" stroke="${style.stroke}" stroke-width="1.2"/>`,
+        `fill="${container ? 'rgba(245,158,11,0.08)' : style.fill}" stroke="${style.stroke}" ` +
+        `stroke-width="${container ? 1.6 : 1.2}"/>`,
     );
+    if (container) {
+      // «Шапка» узла размещения непрозрачна, чтобы подписи читались, а тело узла
+      // остаётся полупрозрачным: связи между экземплярами внутри узла видны.
+      parts.push(
+        `<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${CONTAINER_HEADER}" rx="12" ` +
+          'fill="#fff7ed" fill-opacity="0.85"/>',
+      );
+      parts.push(
+        `<path d="M ${box.x} ${box.y + CONTAINER_HEADER} L ${box.x + box.w} ` +
+          `${box.y + CONTAINER_HEADER}" stroke="${style.stroke}" stroke-width="1"/>`,
+      );
+    }
     parts.push(
-      `<text x="${box.x + 16}" y="${box.y + 30}" font-size="14" font-weight="600" ` +
-        `fill="${style.text}">${escapeXml(clip(node.name, 26))}</text>`,
+      `<text x="${box.x + 16}" y="${box.y + (container ? 28 : 30)}" font-size="14" font-weight="600" ` +
+        `fill="${style.text}">${escapeXml(clip(node.name, container ? 34 : 26))}</text>`,
     );
     if (node.technology) {
       parts.push(
-        `<text x="${box.x + 16}" y="${box.y + 50}" font-size="11" fill="${style.tag}" ` +
-          `font-family="monospace">${escapeXml(clip(node.technology, 34))}</text>`,
+        `<text x="${box.x + 16}" y="${box.y + (container ? 46 : 50)}" font-size="11" ` +
+          `fill="${style.tag}" font-family="monospace">` +
+          `${escapeXml(clip(node.technology, 40))}</text>`,
       );
     }
     // Адреса развертывания — отдельной строкой (ТЗ §10.3): из схемы должно быть
     // видно, на каком адресе размещен экземпляр. Карточка узла — 270px, поэтому
     // строка адресов обрезается мягче, чем имя.
     const addresses = nodeAddresses(node);
-    if (addresses && box.h >= 100) {
+    if (addresses && (container || box.h >= 100)) {
       parts.push(
-        `<text x="${box.x + 16}" y="${box.y + 68}" font-size="10" fill="#0f766e" ` +
+        `<text x="${box.x + 16}" y="${box.y + (container ? 62 : 68)}" font-size="10" fill="#0f766e" ` +
           `font-family="monospace">${escapeXml(clip(addresses, 48))}</text>`,
       );
+    }
+    if (container) {
+      // Состав узла размещения: сколько экземпляров модулей лежит внутри рамки.
+      parts.push(
+        `<text x="${box.x + 16}" y="${box.y + 78}" font-size="10" fill="#b45309">` +
+          `${escapeXml(`экземпляров: ${childCount}`)}</text>`,
+      );
+      if (node.style?.code) {
+        parts.push(
+          `<text x="${box.x + box.w - 16}" y="${box.y + 78}" text-anchor="end" font-size="10" ` +
+            `fill="${style.tag}">${escapeXml(node.style.code)}</text>`,
+        );
+      }
+      continue;
     }
     if (node.style?.code) {
       parts.push(
@@ -386,9 +456,17 @@ export function exportMermaid(graph, meta = {}) {
     const indent = '  '.repeat(depth);
     const key = mermaidId(node.id);
     const label = escMermaid(node.name);
-    if (isBoundary(node.c4Type)) {
-      lines.push(`${indent}subgraph ${key}["${label}"]`);
-      for (const child of childrenOf.get(node.id) || []) emit(child, depth + 1);
+    const children = childrenOf.get(node.id) || [];
+    // Узел размещения с составом — блок: экземпляры модулей лежат внутри узла (ТЗ §10.3).
+    const container = isContainer(node.c4Type) && children.length > 0;
+    if (isBoundary(node.c4Type) || container) {
+      const meta = container
+        ? `<br/>${escMermaid(
+            [node.technology, `экземпляров: ${children.length}`].filter(Boolean).join(' · '),
+          )}`
+        : '';
+      lines.push(`${indent}subgraph ${key}["${label}${meta}"]`);
+      for (const child of children) emit(child, depth + 1);
       lines.push(`${indent}end`);
       return;
     }
@@ -396,7 +474,7 @@ export function exportMermaid(graph, meta = {}) {
     const addresses = nodeAddresses(node);
     const addr = addresses ? `<br/>${escMermaid(addresses)}` : '';
     lines.push(`${indent}${key}["${label}${tech}${addr}"]`);
-    for (const child of childrenOf.get(node.id) || []) emit(child, depth);
+    for (const child of children) emit(child, depth);
   };
 
   for (const root of nodes.filter((n) => !n.parent)) emit(root, 1);

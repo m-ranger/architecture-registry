@@ -3,6 +3,7 @@ import { DeleteOutlined, ExportOutlined } from '@ant-design/icons'
 import type { ArchEdge, ArchNode, RegistryRef } from '../model/diagramTypes'
 import { formatAddress, nodeAddresses } from '../model/diagramTypes'
 import { C4_TYPE, C4_VISUAL } from '../model/c4Types'
+import { containerChildren, isContainerNode } from '../layout/layoutService'
 import { registryTypeLabel } from '../model/registryRefs'
 
 const VARIANT_OPTIONS = [
@@ -16,6 +17,8 @@ const VARIANT_OPTIONS = [
 interface PropertiesPanelProps {
   node: ArchNode | null
   edge: ArchEdge | null
+  /** Все узлы схемы: состав узла размещения и узел размещения экземпляра (ТЗ §10.3). */
+  nodes: ArchNode[]
   canEdit: boolean
   onUpdateNode: (id: string, patch: Partial<ArchNode>) => void
   onUpdateEdge: (id: string, patch: Partial<ArchEdge>) => void
@@ -27,6 +30,7 @@ interface PropertiesPanelProps {
 export function PropertiesPanel({
   node,
   edge,
+  nodes,
   canEdit,
   onUpdateNode,
   onUpdateEdge,
@@ -105,6 +109,11 @@ export function PropertiesPanel({
   const visual = C4_VISUAL[current.c4Type] || C4_VISUAL[C4_TYPE.CONTAINER]
   // Адреса развертывания узла: у кластера — набор адресов, у сервера — интерфейсы.
   const addresses = nodeAddresses(current)
+  // Схема развертывания (ТЗ §10.3): состав узла размещения и узел у экземпляра.
+  const containers = nodes.filter((item) => isContainerNode(item))
+  const container = isContainerNode(current)
+  const children = container ? containerChildren(nodes, current.id) : []
+  const host = current.parent ? containers.find((item) => item.id === current.parent) : undefined
 
   return (
     <div className="arch-props">
@@ -125,6 +134,24 @@ export function PropertiesPanel({
           )}
         </Descriptions.Item>
         <Descriptions.Item label="Родитель">{current.parent || '—'}</Descriptions.Item>
+        {host ? (
+          <Descriptions.Item label="Узел размещения">{host.name}</Descriptions.Item>
+        ) : null}
+        {container ? (
+          <Descriptions.Item label="Состав">
+            {children.length > 0 ? (
+              <Space direction="vertical" size={0}>
+                {children.map((child) => (
+                  <Typography.Text key={child.id} style={{ fontSize: 12 }}>
+                    {child.name}
+                  </Typography.Text>
+                ))}
+              </Space>
+            ) : (
+              <Tag>экземпляров нет</Tag>
+            )}
+          </Descriptions.Item>
+        ) : null}
         {current.c4Type === C4_TYPE.DEPLOYMENT_NODE ||
         current.c4Type === C4_TYPE.DEPLOYMENT_INSTANCE ? (
           <Descriptions.Item label="Адреса">
@@ -144,6 +171,20 @@ export function PropertiesPanel({
       </Descriptions>
 
       <Divider style={{ margin: '12px 0' }} />
+
+      {current.c4Type === C4_TYPE.DEPLOYMENT_INSTANCE && containers.length > 0 ? (
+        <label className="arch-props__field">
+          <span>Узел размещения</span>
+          <Select
+            style={{ width: '100%' }}
+            disabled={!canEdit}
+            placeholder="выберите узел размещения"
+            value={containers.some((item) => item.id === current.parent) ? current.parent! : undefined}
+            options={containers.map((item) => ({ value: item.id, label: item.name }))}
+            onChange={(value) => onUpdateNode(current.id, { parent: value })}
+          />
+        </label>
+      ) : null}
 
       <label className="arch-props__field">
         <span>Название</span>
@@ -209,7 +250,7 @@ export function PropertiesPanel({
           <span>Ширина</span>
           <InputNumber
             min={120}
-            disabled={!canEdit}
+            disabled={!canEdit || container}
             value={current.size.width}
             onChange={(value) =>
               onUpdateNode(current.id, { size: { ...current.size, width: Number(value) || 240 } })
@@ -220,7 +261,7 @@ export function PropertiesPanel({
           <span>Высота</span>
           <InputNumber
             min={60}
-            disabled={!canEdit}
+            disabled={!canEdit || container}
             value={current.size.height}
             onChange={(value) =>
               onUpdateNode(current.id, { size: { ...current.size, height: Number(value) || 100 } })
@@ -228,6 +269,12 @@ export function PropertiesPanel({
           />
         </label>
       </div>
+
+      {container ? (
+        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+          Рамка узла размещения рассчитывается по составу: узел расширяется под экземпляры модулей.
+        </Typography.Text>
+      ) : null}
 
       <Tooltip title={canEdit ? 'Удалить узел' : 'Нет права редактирования'}>
         <Button
