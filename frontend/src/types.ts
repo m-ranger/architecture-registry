@@ -334,11 +334,83 @@ export interface NetworkInteractionReport {
   /** Количество строк в текущей выборке */
   total: number
   rows: NetworkInteractionRow[]
+  /**
+   * Строки, скрытые правилом «одна среда на поток» (Test только на Test, Prod на
+   * Prod): count и разбивка по парам сред «источник → получатель».
+   */
+  excluded?: {
+    crossEnvironment: number
+    pairs: { sourceEnvCode: string; targetEnvCode: string; total: number }[]
+  }
   options: {
     sources: NetworkInteractionOption[]
     targets: NetworkInteractionOption[]
     environments: NetworkInteractionOption[]
     projects: NetworkInteractionOption[]
     statuses: NetworkInteractionOption[]
+  }
+}
+
+/**
+ * Ось «Матрицы информационных потоков» — модуль реестра: строки и столбцы
+ * матрицы (GET /api/reports/flow-matrix).
+ */
+export interface FlowMatrixModule {
+  id: string
+  code: string
+  name: string
+  /** Состояние модуля (application_module.status) */
+  status: string
+  informationSystemId: string
+  isCode: string
+  isName: string
+  /** Среды, в которых заведён экземпляр модуля (коды через запятую) */
+  envCodes?: string | null
+}
+
+/** Ячейка матрицы — информационный поток между парой модулей. */
+export interface FlowMatrixFlow {
+  id: string
+  code: string
+  name: string
+  status: string
+  sourceModuleId: string
+  targetModuleId: string
+  protocolCode: string
+  protocolName: string
+  protocolTransport?: string | null
+  /** Порт стороны: явный порт потока либо порт протокола по умолчанию */
+  sourcePort?: number | null
+  targetPort?: number | null
+  /** Коды проектов, в рамках которых задействован поток */
+  projectCodes?: string | null
+}
+
+/** Сводка матрицы: размеры осей, ячейки и распределение потоков по состояниям. */
+export interface FlowMatrixSummary {
+  modules: number
+  flows: number
+  /** Количество заполненных ячеек (пар «источник → назначение» с потоком) */
+  cells: number
+  informationSystems: number
+  statuses: Record<string, number>
+}
+
+export interface FlowMatrixReport {
+  modules: FlowMatrixModule[]
+  flows: FlowMatrixFlow[]
+  summary: FlowMatrixSummary
+  options: {
+    informationSystems: NetworkInteractionOption[]
+    projects: NetworkInteractionOption[]
+    statuses: NetworkInteractionOption[]
+  }
+  applied: {
+    statuses: string[]
+    project: string | null
+    informationSystem: string | null
+    q: string | null
+    onlyInvolved: boolean
+    includeRetired: boolean
   }
 }

@@ -16,6 +16,10 @@ import type { NetworkInteractionReport, NetworkInteractionRow, NetworkInteractio
  * Адрес выбирается по приоритету роли (SERVICE → INGRESS → VIRTUAL → NODE →
  * MANAGEMENT), поэтому отчёт совпадает с представлениями v15a/v16 (ТЗ §10.3).
  *
+ * Поток показывается только внутри одной среды — Test только на Test, Prod на
+ * Prod: пары сторон из разных сред backend не возвращает, а их количество и
+ * разбивка приходят в report.excluded (показываются предупреждением).
+ *
  * Если у стороны нет экземпляра, размещения или адреса, строка остаётся в
  * отчёте и помечается: поток не «теряется» из-за незаведённых данных (Б4/У9).
  */
@@ -142,6 +146,15 @@ export default function NetworkInteractionsPage() {
     () => rows.filter((row) => !row.sourceAddress || !row.targetAddress).length,
     [rows],
   )
+  // Пары сторон из разных сред, скрытые правилом «Test только на Test, Prod на Prod».
+  const hiddenPairs = report?.excluded?.pairs ?? []
+  const hiddenCount = report?.excluded?.crossEnvironment ?? 0
+  const hiddenNote = hiddenPairs
+    .map((pair) => `${pair.sourceEnvCode} → ${pair.targetEnvCode}: ${pair.total}`)
+    .join(', ')
+
+  /** Среда потока: по правилу «одна среда на поток» обе стороны находятся в одной среде. */
+  const flowEnvironment = (row: NetworkInteractionRow) => row.sourceEnvCode || row.targetEnvCode || null
 
   const resetFilters = () => {
     setSource(undefined)
@@ -190,6 +203,23 @@ export default function NetworkInteractionsPage() {
       ),
     },
     {
+      title: 'Среда',
+      dataIndex: 'sourceEnvCode',
+      key: 'environment',
+      width: 110,
+      render: (_: unknown, row) => {
+        const env = flowEnvironment(row)
+        if (!env) {
+          return <span className='net-interactions__muted'>не определена</span>
+        }
+        return (
+          <Tooltip title='Поток существует только внутри одной среды: Test → Test, Prod → Prod'>
+            <Tag color='purple' bordered={false}>{env}</Tag>
+          </Tooltip>
+        )
+      },
+    },
+    {
       title: 'Источник — с какого адреса',
       dataIndex: 'sourceModuleCode',
       key: 'source',
@@ -211,6 +241,7 @@ export default function NetworkInteractionsPage() {
         <Typography.Text type='secondary'>
           Взаимодействий: {rows.length} · потоков: {flowCount}
           {unresolvedCount > 0 ? ` · строк без адреса у стороны: ${unresolvedCount}` : ''}
+          {hiddenCount > 0 ? ` · скрыто пар из разных сред: ${hiddenCount}` : ''}
         </Typography.Text>
         <Button size='small' icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>
           Обновить
@@ -221,8 +252,17 @@ export default function NetworkInteractionsPage() {
         type='info'
         showIcon
         message='Адрес стороны определяется по реестру: размещение экземпляра модуля → сервер или кластер → network_interface'
-        description='Приоритет роли адреса: SERVICE → INGRESS → VIRTUAL → NODE → MANAGEMENT (совпадает с v15a/v16). Если экземпляр, размещение или адрес не заведены, строка остаётся в отчёте с пометкой — так видно, где не хватает данных (ТЗ §10.3, §17).'
+        description='Приоритет роли адреса: SERVICE → INGRESS → VIRTUAL → NODE → MANAGEMENT (совпадает с v15a/v16). Если экземпляр, размещение или адрес не заведены, строка остаётся в отчёте с пометкой — так видно, где не хватает данных (ТЗ §10.3, §17). Поток показывается только внутри одной среды: Test → Test, Prod → Prod.'
       />
+
+      {hiddenCount > 0 ? (
+        <Alert
+          type='warning'
+          showIcon
+          message={`Поток показывается только внутри одной среды: пар из разных сред скрыто — ${hiddenCount}`}
+          description={`Test показывается только на Test, Prod — на Prod, поэтому пары «источник/получатель» из разных сред в отчёт не попадают. Не показаны: ${hiddenNote}. Чтобы взаимодействие попало в отчёт, у сторон должна быть одна среда — проверьте размещения экземпляров.`}
+        />
+      ) : null}
 
       <Card size='small' style={{ borderRadius: 10 }}>
         <Space size={8} wrap>

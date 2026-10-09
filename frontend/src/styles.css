@@ -519,3 +519,22 @@ body {
   font-size: 11px;
 }
 
+/* ------------------------------- «Матрица информационных потоков» (Отчеты) */
+
+.flow-matrix__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Метка потока в ячейке: код потока вместо наименования — компактнее в матрице */
+.flow-matrix__tag {
+  margin: 0;
+  font-size: 10px;
+}
+
+/* Диагональ матрицы: поток модуля «сам в себя» запрещён (REQ-020) */
+.flow-matrix__diagonal {
+  color: #d9d9d9;
+}
+

@@ -20,6 +20,7 @@ import type {
   DiagramListItem,
   DiagramType,
   NetworkInteractionReport,
+  FlowMatrixReport,
 } from '../types'
 
 // Entity API modules — GET /api/{endpoint} for list operations
@@ -375,6 +376,42 @@ export const reportsApi = {
    */
   networkInteractions: (filters?: NetworkInteractionFilters) =>
     api.get<NetworkInteractionReport>(`/reports/network-interactions${reportQuery(filters)}`),
+  /**
+   * «Матрица информационных потоков» на данных реестра: оси — модули,
+   * ячейки — потоки между парой «источник → назначение».
+   */
+  flowMatrix: (filters?: FlowMatrixFilters) =>
+    api.get<FlowMatrixReport>(`/reports/flow-matrix${matrixQuery(filters)}`),
+}
+
+/** Фильтры «Матрицы информационных потоков» (/matrix). */
+export interface FlowMatrixFilters {
+  /** Состояния потока; по умолчанию backend берёт ACTIVE и PLANNED */
+  statuses?: string[]
+  /** Код проекта: потоки, задействованные в проекте */
+  project?: string
+  /** Код ИС: матрица внутри одной информационной системы */
+  informationSystem?: string
+  /** Поиск по коду и наименованию потока */
+  q?: string
+  /** Только модули, между которыми есть отобранные потоки */
+  onlyInvolved?: boolean
+  /** Показывать выведенные из эксплуатации модули */
+  includeRetired?: boolean
+}
+
+/** Query-строка матрицы: имена параметров совпадают с backend отчётов. */
+function matrixQuery(filters?: FlowMatrixFilters): string {
+  if (!filters) return ''
+  const params = new URLSearchParams()
+  if (filters.statuses && filters.statuses.length > 0) params.set('statuses', filters.statuses.join(','))
+  if (filters.project) params.set('project', filters.project)
+  if (filters.informationSystem) params.set('is', filters.informationSystem)
+  if (filters.q) params.set('q', filters.q)
+  if (filters.onlyInvolved) params.set('onlyInvolved', '1')
+  if (filters.includeRetired) params.set('includeRetired', '1')
+  const qs = params.toString()
+  return qs ? `?${qs}` : ''
 }
 
 
