@@ -255,6 +255,13 @@ export default function MatrixPage() {
           </Space>
           <Button onClick={resetFilters}>Сбросить</Button>
         </Space>
+        {informationSystem ? (
+          <Typography.Text type='secondary' style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+            Фильтр «Информационная система» оставляет потоки внутри выбранной ИС: оба модуля потока
+            входят в неё, поэтому матрица остаётся квадратной. Потоки на модули других ИС в матрицу
+            не попадают.
+          </Typography.Text>
+        ) : null}
       </Card>
 
       <Space size={12} wrap>
