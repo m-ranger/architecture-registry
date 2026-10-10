@@ -40,8 +40,6 @@ export interface FlowRow {
   code: string
   name: string
   status: string
-  targetPort: number | null
-  sourcePort: number | null
   sourceId: string
   sourceCode: string
   sourceName: string

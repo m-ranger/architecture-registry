@@ -45,7 +45,7 @@ type MatrixRow = { key: string; module: FlowMatrixModule }
 function flowTooltip(flow: FlowMatrixFlow): string {
   return [
     flow.name,
-    `${flow.protocolCode}:${flow.targetPort ?? flow.sourcePort ?? '—'}`,
+    `${flow.protocolCode}`,
     FLOW_STATUS_LABEL[flow.status] ?? flow.status,
     flow.projectCodes ? `проекты: ${flow.projectCodes}` : null,
   ]

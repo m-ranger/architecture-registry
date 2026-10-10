@@ -232,8 +232,6 @@ export interface ScopeFlow {
   status: string
   technology: string | null
   protocolCode: string | null
-  sourcePort: number | null
-  targetPort: number | null
   source: ScopeFlowSide
   target: ScopeFlowSide
   /** Размещения обеих сторон есть в срезе — поток попал на схему. */

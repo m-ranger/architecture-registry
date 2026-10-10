@@ -139,8 +139,6 @@ export async function describeScopeFlows(diagram, graph) {
       status: flow.status,
       technology: flowTechnology(flow) || null,
       protocolCode: flow.protocol_code || null,
-      sourcePort: flow.source_port || flow.default_port || null,
-      targetPort: flow.target_port || flow.default_port || null,
       source,
       target,
       /** Поток развернут в срезе: размещения обеих сторон есть в выбранной среде. */

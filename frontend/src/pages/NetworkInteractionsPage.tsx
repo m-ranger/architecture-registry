@@ -196,7 +196,6 @@ export default function NetworkInteractionsPage() {
         <Space direction='vertical' size={2}>
           <Typography.Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{row.protocolCode}</Typography.Text>
           <Typography.Text type='secondary' style={{ fontSize: 11 }}>
-            {row.targetPort ?? row.sourcePort ?? '—'}
             {row.protocolTransport ? ` · ${row.protocolTransport}` : ''}
           </Typography.Text>
         </Space>

@@ -44,7 +44,7 @@ export function NodeShell({ data, selected, accent, icon, container = false }: N
         {icon}
         <span className="arch-node__title">{node.name}</span>
         {container ? (
-          <span className="arch-node__count" title="Экземпляры модулей внутри узла размещения">
+          <span className="arch-node__count" title="Экземпляры модулей">
             {childCount}
           </span>
         ) : null}
@@ -58,9 +58,6 @@ export function NodeShell({ data, selected, accent, icon, container = false }: N
           {addressText.length > 2 ? ` +${addressText.length - 2}` : ''}
         </div>
       ) : null}
-
-      {/* Экземпляр модуля показывает, на каком узле размещения он находится. */}
-      {data.hostName ? <div className="arch-node__host">на узле: {data.hostName}</div> : null}
 
       <div className="arch-node__foot">
         {node.style?.code ? <span className="arch-node__code">{String(node.style.code)}</span> : null}

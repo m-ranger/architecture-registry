@@ -173,10 +173,10 @@ export function addressSummary(addresses = [], limit = 4) {
   return rest > 0 ? `${list.join(', ')} и ещё ${rest}` : list.join(', ');
 }
 
-/** Подпись связи «адрес:порт → адрес:порт» по предпочтительным адресам сторон. */
-function addressPairText(sourceAddresses, sourcePort, targetAddresses, targetPort) {
-  const from = addressWithPort(preferredAddress(sourceAddresses), sourcePort);
-  const to = addressWithPort(preferredAddress(targetAddresses), targetPort);
+/** Подпись связи «адрес» по предпочтительным адресам сторон. */
+function addressPairText(sourceAddresses) {
+  const from = preferredAddress(sourceAddresses);
+  const to = preferredAddress(targetAddresses);
   if (!from || !to) return null;
   return `${from} → ${to}`;
 }

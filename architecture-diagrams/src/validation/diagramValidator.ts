@@ -60,7 +60,7 @@ export function validateDiagram(graph: ArchGraph): ValidationResult {
     if (node.c4Type !== C4_TYPE.DEPLOYMENT_INSTANCE) continue
     const host = node.parent ? byId.get(node.parent) : null
     if (!host) {
-      add('WARNING', 'INSTANCE_WITHOUT_NODE', `Экземпляр «${node.name}» не размещён на узле размещения`, {
+      add('WARNING', 'INSTANCE_WITHOUT_NODE', `Экземпляр «${node.name}» не размещён на узле`, {
         nodeId: node.id,
       })
       continue

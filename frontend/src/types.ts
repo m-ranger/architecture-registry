@@ -174,8 +174,6 @@ export interface InformationFlow {
   sourceModuleId: string
   targetModuleId: string
   protocolId: string
-  targetPort?: number
-  sourcePort?: number
   description?: string
   status: 'PLANNED' | 'ACTIVE' | 'RETIRED'
   validFrom?: string
@@ -285,9 +283,6 @@ export interface NetworkInteractionRow {
   protocolCode: string
   protocolName: string
   protocolTransport?: string | null
-  /** Порт стороны: явный порт потока либо порт протокола по умолчанию */
-  sourcePort?: number | null
-  targetPort?: number | null
   /** Коды проектов, в рамках которых задействован поток */
   projectCodes?: string | null
   sourceIsId: string
@@ -379,9 +374,6 @@ export interface FlowMatrixFlow {
   protocolCode: string
   protocolName: string
   protocolTransport?: string | null
-  /** Порт стороны: явный порт потока либо порт протокола по умолчанию */
-  sourcePort?: number | null
-  targetPort?: number | null
   /** Коды проектов, в рамках которых задействован поток */
   projectCodes?: string | null
 }
