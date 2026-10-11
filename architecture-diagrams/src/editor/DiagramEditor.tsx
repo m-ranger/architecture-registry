@@ -108,9 +108,6 @@ function buildNodes(
   const containerIds = new Set(
     graph.nodes.filter((node) => isContainerNode(node)).map((node) => node.id),
   )
-  const containerNames = new Map(
-    graph.nodes.filter((node) => isContainerNode(node)).map((node) => [node.id, node.name]),
-  )
   // Состав узлов размещения: сколько экземпляров лежит внутри каждого узла.
   const childCountById = new Map<string, number>()
   for (const node of graph.nodes) {
@@ -152,8 +149,6 @@ function buildNodes(
           canEdit,
           // Узел размещения: число экземпляров внутри рамки — для шапки узла.
           childCount: container ? childCountById.get(node.id) || 0 : undefined,
-          // Экземпляр: на каком узле размещения он находится.
-          hostName: node.parent ? containerNames.get(node.parent) : undefined,
         } as unknown as ArchNodeData,
         style: frame
           ? { width: frame.width, height: frame.height }

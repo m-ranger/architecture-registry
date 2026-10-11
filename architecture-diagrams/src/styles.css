@@ -205,6 +205,16 @@ body {
   white-space: nowrap;
 }
 
+/* Назначение экземпляра модуля (Deployment Instance) — сразу под заголовком */
+.arch-node__desc {
+  font-size: 10px;
+  line-height: 1.35;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .arch-node__tech {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 10px;
@@ -279,24 +289,6 @@ body {
   color: #b45309;
 }
 
-.arch-node__count {
-  margin-left: auto;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: #f59e0b;
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.arch-node__host {
-  font-size: 10px;
-  color: #7c5cff;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .arch-status {
   font-size: 10px;
   padding: 1px 6px;
@@ -335,6 +327,19 @@ body {
   color: #64748b;
 }
 
+/* Контур схемы развертывания — сетевой сегмент узла размещения (ADR-025):
+   своя рамка и цвет, чтобы контур сегмента не путался с контуром ИС. */
+.arch-boundary--segment {
+  border-color: #0ea5e9;
+  border-style: dashed;
+  background: rgba(14, 165, 233, 0.06);
+}
+
+.arch-boundary--segment .arch-boundary__label,
+.arch-boundary--segment .arch-boundary__code {
+  color: #0369a1;
+}
+
 /* Связи */
 .arch-edge__label {
   position: absolute;
@@ -349,6 +354,10 @@ body {
   flex-direction: column;
   align-items: center;
   line-height: 1.25;
+  /* Подпись связи схемы развертывания — описание потока: текст длиннее прежних
+     адресов «откуда → куда» (ADR-024), поэтому строка переносится. */
+  max-width: 200px;
+  text-align: center;
 }
 
 .arch-edge__label em {

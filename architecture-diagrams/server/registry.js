@@ -24,6 +24,19 @@ export const REGISTRY_TYPES = [
   'annotation',
 ];
 
+/**
+ * Проверка формата UUID.
+ * Все объекты реестра идентифицируются uuid, поэтому строка другого формата не
+ * может быть найдена. Без проверки PostgreSQL возвращает ошибку
+ * «invalid input syntax for type uuid»: клиент получает HTTP 500 с текстом
+ * ошибки СУБД вместо ожидаемого 404.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (value) => typeof value === 'string' && UUID_RE.test(value);
+
+/** Набор идентификаторов без значений не-uuid (защита массовых выборок). */
+const uuidList = (ids = []) => (Array.isArray(ids) ? ids.filter(isUuid) : []);
+
 /** SQL-выборка «лёгкой карточки» по каждому типу для поиска и палитры. */
 const SEARCH_SQL = {
   information_system: `
@@ -103,7 +116,7 @@ export async function getRegistryObject(type, id) {
     protocol: 'protocol',
     project: 'project',
   }[type];
-  if (!table) return null;
+  if (!table || !isUuid(id)) return null;
   const { rows } = await pool.query(`SELECT * FROM ${table} WHERE id = $1`, [id]);
   return rows[0] || null;
 }
@@ -127,8 +140,27 @@ export async function listSystems(query = '', limit = 100) {
   return rows;
 }
 
+/**
+ * Список сред эксплуатации для выбора среды схемы развертывания (ADR-026).
+ * Среды, выведенные из эксплуатации, не предлагаются: размещения RETIRED-среды в
+ * состав схемы не попадают, поэтому схема по такой среде была бы пустой.
+ */
+export async function listEnvironments(query = '', limit = 100) {
+  const { rows } = await pool.query(
+    `SELECT id, code, name, status, criticality
+       FROM environment
+      WHERE (code ILIKE $1 OR name ILIKE $1)
+        AND status <> 'RETIRED'
+      ORDER BY code
+      LIMIT $2`,
+    [`%${query}%`, Number(limit) || 100],
+  );
+  return rows;
+}
+
 /** Паспорт информационной системы — корень scope для всех типов схем. */
 export async function getInformationSystem(id) {
+  if (!isUuid(id)) return null;
   const { rows } = await pool.query(
     `SELECT * FROM information_system WHERE id = $1`,
     [id],
@@ -138,6 +170,7 @@ export async function getInformationSystem(id) {
 
 /** Модули ИС (Container-уровень, ТЗ §10.2). */
 export async function getModulesOfSystem(systemId) {
+  if (!isUuid(systemId)) return [];
   const { rows } = await pool.query(
     `SELECT * FROM application_module WHERE information_system_id = $1 ORDER BY code`,
     [systemId],
@@ -150,8 +183,9 @@ export async function getModulesOfSystem(systemId) {
  * В модели реестра v2.0 information_flow связывает application_module.
  */
 export async function getSystemFlows(systemId, statuses = ['ACTIVE', 'PLANNED']) {
+  if (!isUuid(systemId)) return [];
   const { rows } = await pool.query(
-    `SELECT fl.id, fl.code, fl.name, fl.status, fl.target_port, fl.source_port,
+    `SELECT fl.id, fl.code, fl.name, fl.description, fl.status, fl.target_port, fl.source_port,
             sm.id AS source_id, sm.code AS source_code, sm.name AS source_name,
             sm.information_system_id AS source_system_id,
             tm.id AS target_id, tm.code AS target_code, tm.name AS target_name,
@@ -172,10 +206,17 @@ export async function getSystemFlows(systemId, statuses = ['ACTIVE', 'PLANNED'])
 
 /**
  * Размещения (module_deployment) экземпляров модулей ИС (ТЗ §10.3).
- * environmentId — срез схемы по среде: в выборку попадают только размещения
- * экземпляров указанной среды (NULL — все среды).
+ * Объекты, выведенные из эксплуатации (`status = 'RETIRED'`), в схему
+ * развертывания не попадают: ни экземпляр, ни его узел размещения, ни среда
+ * (ADR-023). Правило действует и в панели «Потоки области» — она читает
+ * размещения этим же запросом.
+ *
+ * Среда схемы развертывания (environmentId) сужает состав до размещений одной
+ * среды: схема строится для одной среды эксплуатации (ADR-026). Пустое значение
+ * (null) оставлено для вызовов, которым нужны все среды.
  */
 export async function getSystemDeployments(systemId, state = 'ACTIVE', environmentId = null) {
+  if (!isUuid(systemId)) return [];
   const { rows } = await pool.query(
     `SELECT md.id, md.deployment_role, md.deployment_state,
             mi.id AS instance_id, mi.name AS instance_name, mi.status AS instance_status,
@@ -190,7 +231,11 @@ export async function getSystemDeployments(systemId, state = 'ACTIVE', environme
      LEFT JOIN server s ON s.id = md.server_id
      LEFT JOIN cluster c ON c.id = md.cluster_id
      WHERE am.information_system_id = $1 AND md.deployment_state = $2
-       AND ($3::uuid IS NULL OR env.id = $3::uuid)
+       AND ($3::uuid IS NULL OR env.id = $3)
+       AND mi.status <> 'RETIRED'
+       AND COALESCE(s.status, 'ACTIVE') <> 'RETIRED'
+       AND COALESCE(c.status, 'ACTIVE') <> 'RETIRED'
+       AND env.status <> 'RETIRED'
      ORDER BY env.code, am.code, mi.name`,
     [systemId, state, environmentId],
   );
@@ -199,6 +244,7 @@ export async function getSystemDeployments(systemId, state = 'ACTIVE', environme
 
 /** Экземпляры модулей ИС (Deployment Instance, ТЗ §10.3). */
 export async function getInstancesOfSystem(systemId) {
+  if (!isUuid(systemId)) return [];
   const { rows } = await pool.query(
     `SELECT mi.*, am.code AS module_code, am.name AS module_name,
             env.code AS environment_code, env.name AS environment_name
@@ -240,6 +286,7 @@ export async function listProjects(query = '', limit = 100) {
 
 /** Паспорт проекта — корень scope для схем «в разрезе проекта». */
 export async function getProject(id) {
+  if (!isUuid(id)) return null;
   const { rows } = await pool.query(`SELECT * FROM project WHERE id = $1`, [id]);
   return rows[0] || null;
 }
@@ -250,8 +297,9 @@ export async function getProject(id) {
  * генератор схемы не зависит от типа области (ИС или проект).
  */
 export async function getProjectFlows(projectId, statuses = ['ACTIVE', 'PLANNED']) {
+  if (!isUuid(projectId)) return [];
   const { rows } = await pool.query(
-    `SELECT fl.id, fl.code, fl.name, fl.status, fl.target_port, fl.source_port,
+    `SELECT fl.id, fl.code, fl.name, fl.description, fl.status, fl.target_port, fl.source_port,
             sm.id AS source_id, sm.code AS source_code, sm.name AS source_name,
             sm.information_system_id AS source_system_id,
             tm.id AS target_id, tm.code AS target_code, tm.name AS target_name,
@@ -273,6 +321,7 @@ export async function getProjectFlows(projectId, statuses = ['ACTIVE', 'PLANNED'
 
 /** Модули, участвующие в проекте через интеграционные потоки (Container-уровень). */
 export async function getProjectModules(projectId) {
+  if (!isUuid(projectId)) return [];
   const { rows } = await pool.query(
     `SELECT am.*
        FROM application_module am
@@ -295,24 +344,33 @@ export async function getProjectModules(projectId) {
 
 /** Информационные системы, которым принадлежит указанный набор модулей. */
 export async function getSystemsOfModules(moduleIds = []) {
-  if (moduleIds.length === 0) return [];
+  const ids = uuidList(moduleIds);
+  if (ids.length === 0) return [];
   const { rows } = await pool.query(
     `SELECT DISTINCT isys.*
        FROM information_system isys
        JOIN application_module am ON am.information_system_id = isys.id
       WHERE am.id = ANY($1::uuid[])
       ORDER BY isys.code`,
-    [moduleIds],
+    [ids],
   );
   return rows;
 }
 
 /**
  * Размещения экземпляров указанного набора модулей (scope = проект, ТЗ §10.3).
- * environmentId — срез схемы по среде (NULL — все среды).
+ * Объекты, выведенные из эксплуатации (`status = 'RETIRED'`), в схему
+ * развертывания не попадают: ни экземпляр, ни его узел размещения, ни среда
+ * (ADR-023). Правило действует и в панели «Потоки области» — она читает
+ * размещения этим же запросом.
+ *
+ * Среда схемы развертывания (environmentId) сужает состав до размещений одной
+ * среды: схема строится для одной среды эксплуатации (ADR-026). Пустое значение
+ * (null) оставлено для вызовов, которым нужны все среды.
  */
 export async function getModuleDeployments(moduleIds = [], state = 'ACTIVE', environmentId = null) {
-  if (moduleIds.length === 0) return [];
+  const ids = uuidList(moduleIds);
+  if (ids.length === 0) return [];
   const { rows } = await pool.query(
     `SELECT md.id, md.deployment_role, md.deployment_state,
             mi.id AS instance_id, mi.name AS instance_name, mi.status AS instance_status,
@@ -327,9 +385,13 @@ export async function getModuleDeployments(moduleIds = [], state = 'ACTIVE', env
        LEFT JOIN server s ON s.id = md.server_id
        LEFT JOIN cluster c ON c.id = md.cluster_id
       WHERE am.id = ANY($1::uuid[]) AND md.deployment_state = $2
-        AND ($3::uuid IS NULL OR env.id = $3::uuid)
+        AND ($3::uuid IS NULL OR env.id = $3)
+        AND mi.status <> 'RETIRED'
+        AND COALESCE(s.status, 'ACTIVE') <> 'RETIRED'
+        AND COALESCE(c.status, 'ACTIVE') <> 'RETIRED'
+        AND env.status <> 'RETIRED'
       ORDER BY env.code, am.code, mi.name`,
-    [moduleIds, state, environmentId],
+    [ids, state, environmentId],
   );
   return rows;
 }
@@ -339,8 +401,9 @@ export async function getModuleDeployments(moduleIds = [], state = 'ACTIVE', env
 // Адрес узла размещения хранится в network_interface: владелец server_id —
 // адрес сервера, владелец cluster_id — адрес кластера (роль в кластере:
 // INGRESS, NODE, MANAGEMENT). Адрес со средой NULL действует во всех средах,
-// поэтому при срезе схемы по среде возвращаются и адреса конкретной среды, и
-// «общие» адреса узла.
+// поэтому вместе с адресом конкретной среды возвращаются и «общие» адреса узла:
+// предпочтённый адрес (приоритет роли) задаёт сетевой сегмент узла, а значит
+// контур схемы развертывания (ADR-025).
 // ---------------------------------------------------------------------------
 
 /** Приоритет роли адреса: точка входа важнее адреса узла, затем управление. */
@@ -354,80 +417,63 @@ export const ADDRESS_ROLE_PRIORITY = [
   'OTHER',
 ];
 
-/** Среда по идентификатору — код и наименование для подписи среза схемы. */
-export async function getEnvironment(id) {
-  const { rows } = await pool.query(
-    `SELECT id, code, name, criticality, status, description FROM environment WHERE id = $1`,
-    [id],
-  );
-  return rows[0] || null;
-}
-
-/** Список сред эксплуатации — для выбора среза схемы развертывания. */
-export async function listEnvironments(query = '', limit = 50) {
-  const { rows } = await pool.query(
-    `SELECT id, code, name, criticality, status, description
-       FROM environment
-      WHERE code ILIKE $1 OR name ILIKE $1
-      ORDER BY code
-      LIMIT $2`,
-    [`%${query}%`, Number(limit) || 50],
-  );
-  return rows;
-}
-
 /** Ключ узла размещения в индексе адресов: server:<id> или cluster:<id>. */
 export const ownerAddressKey = (ownerType, ownerId) => `${ownerType}:${ownerId}`;
 
 /**
- * Адреса узлов размещения (server/cluster) с учётом среды.
+ * Адреса узлов размещения (server/cluster) вместе с их сетевым сегментом.
  * Возвращает строки с owner_type/owner_id, поэтому индекс строится в graph.js.
  * Владелец адреса — server_id или cluster_id (ровно одно поле).
+ * Сетевой сегмент адреса нужен схеме развертывания: контур схемы — сегмент узла
+ * размещения, поэтому вместе с адресом возвращаются network_segment и его зона
+ * (ADR-025).
  */
-export async function getDeploymentAddresses({
-  serverIds = [],
-  clusterIds = [],
-  environmentId = null,
-} = {}) {
+export async function getDeploymentAddresses({ serverIds = [], clusterIds = [] } = {}) {
+  const servers = uuidList(serverIds);
+  const clusters = uuidList(clusterIds);
   const rows = [];
 
-  if (serverIds.length > 0 || clusterIds.length > 0) {
+  if (servers.length > 0 || clusters.length > 0) {
     const { rows: ownerRows } = await pool.query(
       `SELECT CASE WHEN ni.cluster_id IS NOT NULL THEN 'cluster' ELSE 'server' END AS owner_type,
               COALESCE(ni.cluster_id, ni.server_id) AS owner_id,
               ni.name, ni.ip_address::text AS ip_address,
               COALESCE(ni.interface_role, 'OTHER') AS address_role,
               false AS is_primary, ni.status,
-              ns.code AS segment_code, nz.code AS zone_code
+              ns.id AS segment_id, ns.code AS segment_code, ns.name AS segment_name,
+              ns.status AS segment_status,
+              nz.code AS zone_code, nz.name AS zone_name
          FROM network_interface ni
          LEFT JOIN network_segment ns ON ns.id = ni.network_segment_id
          LEFT JOIN network_zone nz ON nz.id = ns.network_zone_id
         WHERE (ni.server_id = ANY($1::uuid[]) OR ni.cluster_id = ANY($2::uuid[]))
           AND ni.ip_address IS NOT NULL
           AND ni.status <> 'RETIRED'
-          AND ($3::uuid IS NULL OR ni.environment_id IS NULL OR ni.environment_id = $3::uuid)
         ORDER BY ni.ip_address`,
-      [serverIds, clusterIds, environmentId],
+      [servers, clusters],
     );
     rows.push(...ownerRows);
   }
 
-  if (clusterIds.length > 0) {
+  if (clusters.length > 0) {
     // Совместимость с прежней моделью: если у кластера адресов в
     // network_interface нет, используется единственный адрес управления
-    // cluster.management_address.
+    // cluster.management_address. Сетевого сегмента у такого адреса нет, поэтому
+    // узел размещения не попадает в контур сегмента — это фиксирует валидация.
     const { rows: legacyRows } = await pool.query(
       `SELECT c.id AS owner_id, 'cluster' AS owner_type,
               'cluster.management_address' AS name, c.management_address AS ip_address,
               'MANAGEMENT' AS address_role, false AS is_primary, 'ACTIVE' AS status,
-              NULL::text AS segment_code, NULL::text AS zone_code
+              NULL::uuid AS segment_id, NULL::text AS segment_code,
+              NULL::text AS segment_name, NULL::text AS segment_status,
+              NULL::text AS zone_code, NULL::text AS zone_name
          FROM cluster c
         WHERE c.id = ANY($1::uuid[])
           AND c.management_address IS NOT NULL
           AND NOT EXISTS (
             SELECT 1 FROM network_interface ni WHERE ni.cluster_id = c.id
           )`,
-      [clusterIds],
+      [clusters],
     );
     rows.push(...legacyRows);
   }

@@ -21,7 +21,13 @@ const escapeXml = (value) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
-const isBoundary = (c4Type) => c4Type === 'SystemBoundary' || c4Type === 'EnvironmentBoundary';
+const isBoundary = (c4Type) =>
+  c4Type === 'SystemBoundary' ||
+  c4Type === 'EnvironmentBoundary' ||
+  c4Type === 'NetworkSegmentBoundary';
+
+/** Контур схемы развертывания — сетевой сегмент узла размещения (ADR-025). */
+const isSegmentBoundary = (c4Type) => c4Type === 'NetworkSegmentBoundary';
 
 /** Узел размещения — контейнер для экземпляров модулей (ТЗ §10.3). */
 const isContainer = (c4Type) => c4Type === 'DeploymentNode';
@@ -179,7 +185,11 @@ export function exportSvg(graph, meta = {}) {
   const width = Math.ceil(maxX - minX + pad * 2);
   const height = Math.ceil(maxY - minY + pad * 2 + headerH);
   const title = meta.name || 'Архитектурная схема';
-  const subtitle = [meta.diagramType, meta.code].filter(Boolean).join(' · ');
+  // Среда схемы развертывания — часть подписи: одна схема описывает одну среду
+  // эксплуатации (ADR-026), поэтому в экспорте видно, к какой среде он относится.
+  const subtitle = [meta.diagramType, meta.code, meta.environmentCode || null]
+    .filter(Boolean)
+    .join(' · ');
 
   const parts = [];
   parts.push(
@@ -205,17 +215,25 @@ export function exportSvg(graph, meta = {}) {
   }
 
   // 1. Границы контуров (первым слоем, чтобы были под узлами).
+  // Контур схемы развертывания — сетевой сегмент (ADR-025): у него своя рамка,
+  // чтобы его было видно отдельно от контуров ИС и ручных контуров сред.
   for (const node of nodes) {
     if (!isBoundary(node.c4Type)) continue;
     const box = boxes.get(node.id);
     if (!box) continue;
+    const segment = isSegmentBoundary(node.c4Type);
     parts.push(
       `<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="14" ` +
-        'fill="rgba(148,163,184,0.07)" stroke="#94a3b8" stroke-dasharray="6 6"/>',
+        (segment
+          ? 'fill="rgba(14,165,233,0.06)" stroke="#0ea5e9" stroke-dasharray="10 5"/>'
+          : 'fill="rgba(148,163,184,0.07)" stroke="#94a3b8" stroke-dasharray="6 6"/>'),
     );
     parts.push(
       `<text x="${box.x + 14}" y="${box.y + 20}" font-size="10" font-weight="600" ` +
-        `fill="#475569" letter-spacing="0.08em">${escapeXml(String(node.name).toUpperCase())}</text>`,
+        `fill="${segment ? '#0369a1' : '#475569'}" letter-spacing="0.08em">` +
+        `${escapeXml(String(node.name).toUpperCase())}${
+          segment && node.style?.code ? ` · ${escapeXml(String(node.style.code))}` : ''
+        }</text>`,
     );
   }
 
@@ -228,8 +246,8 @@ export function exportSvg(graph, meta = {}) {
       `<path d="${d}" fill="none" stroke="#64748b" stroke-width="1.4" marker-end="url(#arch-arrow)"/>`,
     );
     if (edge.label) {
-      // Подпись связи схемы развертывания — адреса «откуда → куда», поэтому
-      // обрезка мягче, чем для имени потока (ТЗ §10.3).
+      // Подпись связи — описание информационного потока (ТЗ §10.3, ADR-024):
+      // адресов «откуда → куда» в подписи больше нет.
       parts.push(
         `<text x="${route.labelX}" y="${route.labelY - 6}" text-anchor="middle" font-size="11" ` +
           `fill="#334155">${escapeXml(clip(edge.label, 42))}</text>`,
@@ -245,12 +263,6 @@ export function exportSvg(graph, meta = {}) {
 
   // 3. Узлы: узлы размещения рисуются первыми, их состав — экземпляры — поверх
   // рамки узла (ТЗ §10.3). Порядок задаёт глубина вложенности.
-  const childrenOf = new Map();
-  for (const node of nodes) {
-    if (!node.parent) continue;
-    if (!childrenOf.has(node.parent)) childrenOf.set(node.parent, []);
-    childrenOf.get(node.parent).push(node);
-  }
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const depthOf = (node) => {
     let depth = 0;
@@ -270,7 +282,6 @@ export function exportSvg(graph, meta = {}) {
     if (!box) continue;
     const style = VARIANT_STYLE[node.style?.variant] || VARIANT_STYLE.application;
     const container = isContainer(node.c4Type);
-    const childCount = container ? (childrenOf.get(node.id) || []).length : 0;
     parts.push(
       `<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="12" ` +
         `fill="${container ? 'rgba(245,158,11,0.08)' : style.fill}" stroke="${style.stroke}" ` +
@@ -292,9 +303,19 @@ export function exportSvg(graph, meta = {}) {
       `<text x="${box.x + 16}" y="${box.y + (container ? 28 : 30)}" font-size="14" font-weight="600" ` +
         `fill="${style.text}">${escapeXml(clip(node.name, container ? 34 : 26))}</text>`,
     );
+    // Экземпляр модуля: адрес, узел размещения и статус относятся к размещению в
+    // реестре и показаны на узле размещения, поэтому карточка экземпляра несёт
+    // назначение модуля и его код (ADR-023) — как на canvas.
+    const instance = node.c4Type === 'DeploymentInstance';
+    if (instance && node.description) {
+      parts.push(
+        `<text x="${box.x + 16}" y="${box.y + 50}" font-size="10" fill="#475569">` +
+          `${escapeXml(clip(node.description, 44))}</text>`,
+      );
+    }
     if (node.technology) {
       parts.push(
-        `<text x="${box.x + 16}" y="${box.y + (container ? 46 : 50)}" font-size="11" ` +
+        `<text x="${box.x + 16}" y="${box.y + (container ? 46 : instance ? 66 : 50)}" font-size="11" ` +
           `fill="${style.tag}" font-family="monospace">` +
           `${escapeXml(clip(node.technology, 40))}</text>`,
       );
@@ -303,18 +324,15 @@ export function exportSvg(graph, meta = {}) {
     // видно, на каком адресе размещен экземпляр. Карточка узла — 270px, поэтому
     // строка адресов обрезается мягче, чем имя.
     const addresses = nodeAddresses(node);
-    if (addresses && (container || box.h >= 100)) {
+    if (!instance && addresses && (container || box.h >= 100)) {
       parts.push(
         `<text x="${box.x + 16}" y="${box.y + (container ? 62 : 68)}" font-size="10" fill="#0f766e" ` +
           `font-family="monospace">${escapeXml(clip(addresses, 48))}</text>`,
       );
     }
     if (container) {
-      // Состав узла размещения: сколько экземпляров модулей лежит внутри рамки.
-      parts.push(
-        `<text x="${box.x + 16}" y="${box.y + 78}" font-size="10" fill="#b45309">` +
-          `${escapeXml(`экземпляров: ${childCount}`)}</text>`,
-      );
+      // Счётчик состава на карточке узла размещения не выводится (ADR-024):
+      // состав виден по самим экземплярам внутри рамки.
       if (node.style?.code) {
         parts.push(
           `<text x="${box.x + box.w - 16}" y="${box.y + 78}" text-anchor="end" font-size="10" ` +
@@ -323,7 +341,7 @@ export function exportSvg(graph, meta = {}) {
       }
       continue;
     }
-    if (node.style?.code) {
+    if (!instance && node.style?.code) {
       parts.push(
         `<text x="${box.x + 16}" y="${box.y + box.h - 12}" font-size="10" fill="${style.tag}">` +
           `${escapeXml(node.style.code)}</text>`,
@@ -364,17 +382,25 @@ export function exportPlantUml(graph, meta = {}) {
     );
   }
   lines.push('');
-  lines.push(`title ${meta.name || 'Архитектурная схема'}`);
+  // Среда схемы развертывания — часть подписи выгрузки: одна схема описывает
+  // размещения одной среды (ADR-026).
+  lines.push(
+    `title ${meta.name || 'Архитектурная схема'}${
+      type === 'DEPLOYMENT' && meta.environmentCode ? ` · среда ${meta.environmentCode}` : ''
+    }`,
+  );
   lines.push('');
 
   const emit = (node, depth) => {
     const indent = '  '.repeat(depth);
     const key = sanitizeKey(node.id);
     const name = escPuml(node.name);
-    // Адреса развертывания идут в описание узла: схема развертывания отвечает
-    // на вопрос «с какого адреса на какой выполняется поток» (ТЗ §10.3).
+    // Адреса развертывания идут в описание узла размещения: схема отвечает на
+    // вопрос «с какого адреса на какой выполняется поток» (ТЗ §10.3). Экземпляр
+    // адрес не дублирует — его показывает узел размещения (ADR-023).
     const addresses = nodeAddresses(node);
-    const desc = escPuml([node.description, addresses].filter(Boolean).join(' · '));
+    const ownAddresses = node.c4Type === 'DeploymentInstance' ? null : addresses;
+    const desc = escPuml([node.description, ownAddresses].filter(Boolean).join(' · '));
     const tech = escPuml(node.technology || '');
     let head;
     let block = false;
@@ -386,6 +412,14 @@ export function exportPlantUml(graph, meta = {}) {
         break;
       case 'EnvironmentBoundary':
         head = `${indent}Deployment_Node(${key}, "${name}") {`;
+        block = true;
+        break;
+      // Контур схемы развертывания — сетевой сегмент узла размещения (ADR-025):
+      // в C4-PlantUML ближайшая нотация — узел развертывания с вложенным составом.
+      case 'NetworkSegmentBoundary':
+        head = `${indent}Deployment_Node(${key}, "${name}", "", "${escPuml(
+          [node.style?.code, node.style?.zone].filter(Boolean).join(' · '),
+        )}") {`;
         block = true;
         break;
       case 'DeploymentNode':
@@ -450,7 +484,11 @@ export function exportMermaid(graph, meta = {}) {
   }
 
   const lines = ['flowchart LR'];
-  lines.push(`%% ${meta.name || 'Архитектурная схема'}${meta.diagramType ? ` (${meta.diagramType})` : ''}`);
+  // Среда схемы развертывания — часть подписи выгрузки (ADR-026).
+  lines.push(
+    `%% ${meta.name || 'Архитектурная схема'}${meta.diagramType ? ` (${meta.diagramType})` : ''}` +
+      `${meta.environmentCode ? ` · среда ${meta.environmentCode}` : ''}`,
+  );
 
   const emit = (node, depth) => {
     const indent = '  '.repeat(depth);
@@ -460,11 +498,8 @@ export function exportMermaid(graph, meta = {}) {
     // Узел размещения с составом — блок: экземпляры модулей лежат внутри узла (ТЗ §10.3).
     const container = isContainer(node.c4Type) && children.length > 0;
     if (isBoundary(node.c4Type) || container) {
-      const meta = container
-        ? `<br/>${escMermaid(
-            [node.technology, `экземпляров: ${children.length}`].filter(Boolean).join(' · '),
-          )}`
-        : '';
+      // Счётчик состава в подписи блока не выводится (ADR-024).
+      const meta = container && node.technology ? `<br/>${escMermaid(node.technology)}` : '';
       lines.push(`${indent}subgraph ${key}["${label}${meta}"]`);
       for (const child of children) emit(child, depth + 1);
       lines.push(`${indent}end`);
@@ -502,6 +537,9 @@ export function exportJson(graph, meta = {}) {
         type: meta.diagramType || null,
         version: meta.version ?? null,
         status: meta.status || null,
+        // Среда схемы развертывания: выгрузка отвечает на вопрос, размещения какой
+        // среды в ней (ADR-026); у схем контекста и контейнеров — null.
+        environmentCode: meta.environmentCode || null,
       },
       nodes: graph.nodes || [],
       edges: graph.edges || [],

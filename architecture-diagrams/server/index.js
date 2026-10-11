@@ -8,13 +8,15 @@ import { dirname, join } from 'node:path';
 import pool from './db.js';
 import { migrate } from './migrate.js';
 import * as diagrams from './diagrams.js';
-import { generateGraph } from './graph.js';
+import { generateGraph, SCOPE_TYPES } from './graph.js';
 import { describeScopeFlows } from './scopeFlows.js';
 import { validateGraph } from './validate.js';
 import { exportDiagram, EXPORT_FORMATS } from './exporter.js';
 import {
   searchRegistry,
   getRegistryObject,
+  registryObjectExists,
+  isUuid,
   getSystemFlows,
   listSystems,
   listProjects,
@@ -120,15 +122,16 @@ app.get(
 )
 
 /**
- * Среды эксплуатации — для выбора среза схемы развертывания по среде
- * (ТЗ §10.3): отдельная схема на тест, прод и т. п.
+ * Среды эксплуатации — для выбора среды схемы развертывания (ADR-026):
+ * схема строится для одной среды (отдельная схема на прод, тест и т. п.).
+ * Вариант «все среды» для схем развертывания не поддерживается.
  */
 app.get(
   '/api/registry/environments',
   asyncRoute(async (req, res) => {
     res.json(await listEnvironments(String(req.query.q || '')));
   }),
-);
+)
 
 app.get(
   '/api/registry/search',
@@ -148,6 +151,11 @@ app.get(
   asyncRoute(async (req, res) => {
     const systemId = req.query.systemId;
     if (!systemId) return res.status(400).json({ error: 'Параметр systemId обязателен' });
+    // Потоки выбираются по uuid информационной системы: другой формат — ошибка запроса,
+    // иначе СУБД вернула бы «invalid input syntax for type uuid» (HTTP 500).
+    if (!isUuid(String(systemId))) {
+      return res.status(400).json({ error: `Некорректный systemId: ${systemId}` });
+    }
     res.json(await getSystemFlows(String(systemId)));
   }),
 );
@@ -155,6 +163,9 @@ app.get(
 app.get(
   '/api/registry/objects/:type/:id',
   asyncRoute(async (req, res) => {
+    if (!isUuid(req.params.id)) {
+      return res.status(400).json({ error: `Некорректный id объекта реестра: ${req.params.id}` });
+    }
     const object = await getRegistryObject(req.params.type, req.params.id);
     if (!object) return res.status(404).json({ error: 'Объект реестра не найден' });
     res.json(object);
@@ -176,17 +187,41 @@ app.post(
   '/api/diagrams',
   requirePermission('edit'),
   asyncRoute(async (req, res) => {
-    const created = await diagrams.createDiagram(req.body || {});
+    const body = req.body || {};
+    // Область схемы проверяется до создания записи: иначе схема создастся, а
+    // автогенерация по несуществующему объекту реестра упадёт и останется
+    // «осиротевшая» карточка, ссылающаяся на объект, которого нет (ТЗ §12).
+    const scopeType = String(body.scopeType || SCOPE_TYPES.INFORMATION_SYSTEM);
+    const scopeObjectId = body.scopeObjectId ? String(body.scopeObjectId) : null;
+    if (scopeObjectId && !isUuid(scopeObjectId)) {
+      return res.status(400).json({ error: `Некорректный scopeObjectId: ${scopeObjectId}` });
+    }
+    if (
+      scopeObjectId &&
+      Object.values(SCOPE_TYPES).includes(scopeType) &&
+      !(await registryObjectExists(scopeType, scopeObjectId))
+    ) {
+      return res.status(404).json({ error: `Область схемы не найдена: ${scopeType}/${scopeObjectId}` });
+    }
+
+    const created = await diagrams.createDiagram(body);
     // FR-002: начальный граф формируется по данным реестра — по ИС или по проекту.
-    if (req.body?.generate !== false && created.scopeObjectId) {
-      const graph = await generateGraph({
-        diagramType: created.diagramType,
-        scopeId: created.scopeObjectId,
-        scopeType: created.scopeType,
-        environmentId: created.scopeEnvironmentId,
-        mode: 'REBUILD',
-      });
-      await diagrams.applyGeneratedGraph(created.id, graph);
+    if (body.generate !== false && created.scopeObjectId) {
+      try {
+        const graph = await generateGraph({
+          diagramType: created.diagramType,
+          scopeId: created.scopeObjectId,
+          scopeType: created.scopeType,
+          // Среда схемы развертывания ограничивает состав размещений (ADR-026).
+          environmentId: created.scopeEnvironmentId,
+          mode: 'REBUILD',
+        });
+        await diagrams.applyGeneratedGraph(created.id, graph);
+      } catch (err) {
+        // Схема не остаётся записанной частично: при сбое генерации запись снимается.
+        await diagrams.deleteDiagram(created.id).catch(() => {});
+        throw err;
+      }
     }
     res.status(201).json(await diagrams.getDiagramGraph(created.id));
   }),
@@ -221,9 +256,10 @@ app.delete(
 
 /**
  * Потоки области схемы — данные панели «Потоки области» в редакторе.
- * Связи на canvas строятся только между размещениями выбранного среза по среде,
- * поэтому панель дополнительно показывает потоки области, не отражённые на
- * схеме: их статус, размещения сторон в срезе и переход в карточку реестра.
+ * Связи на canvas строятся только между размещениями выбранной среды схемы
+ * (ADR-026), поэтому панель дополнительно показывает потоки области, не
+ * отражённые на схеме: их статус, признак развёрнутости размещений сторон в
+ * среде схемы и переход в карточку реестра.
  */
 app.get(
   '/api/diagrams/:id/flows',
@@ -246,6 +282,7 @@ app.post(
       diagramType: current.diagramType,
       scopeId: current.scopeObjectId,
       scopeType: current.scopeType,
+      // Среда схемы развертывания сохраняется при синхронизации (ADR-026).
       environmentId: current.scopeEnvironmentId,
       mode: String(req.body?.mode || 'REBUILD').toUpperCase(),
       existingPositions,
@@ -253,19 +290,20 @@ app.post(
     const diagram = await diagrams.applyGeneratedGraph(req.params.id, graph);
     res.json({ diagram, graph });
   }),
-);
+)
 
 /**
- * Срез схемы по среде (ТЗ §10.3).
- * Диаграмма развертывания строится отдельно для каждой среды: после смены
- * среза граф перестраивается по данным реестра (layout сбрасывается).
+ * Смена среды схемы развертывания (ADR-026).
+ * Среда меняет состав размещений, поэтому после смены граф перестраивается
+ * полностью (mode=REBUILD): ручная раскладка предыдущей среды не переносится.
+ * Контуром схемы остаётся сетевой сегмент узла размещения (ADR-025).
  */
 app.patch(
-  '/api/diagrams/:id/slice',
+  '/api/diagrams/:id/environment',
   requirePermission('edit'),
   asyncRoute(async (req, res) => {
     const environmentId = req.body?.environmentId || null;
-    const diagram = await diagrams.updateDiagramSlice(req.params.id, environmentId);
+    const diagram = await diagrams.updateDiagramEnvironment(req.params.id, environmentId);
     const graph = await generateGraph({
       diagramType: diagram.diagramType,
       scopeId: diagram.scopeObjectId,
@@ -274,6 +312,8 @@ app.patch(
       mode: 'REBUILD',
     });
     const saved = await diagrams.applyGeneratedGraph(diagram.id, graph);
+    // saved несёт код среды (RETURNING с подзапросами), поэтому подпись схемы в
+    // редакторе обновляется сразу, без повторной загрузки (ADR-026).
     res.json({ diagram: saved, graph });
   }),
 );
@@ -299,7 +339,9 @@ app.post(
         validation,
       });
     }
-    const published = await diagrams.publishDiagram(req.params.id);
+    // revision клиента — optimistic locking: если схему успел изменить другой
+    // пользователь, публиковать устаревшую копию canvas нельзя (ТЗ §12, §18).
+    const published = await diagrams.publishDiagram(req.params.id, req.body?.revision ?? null);
     res.json({ diagram: published.diagram, versionNo: published.versionNo, validation });
   }),
 );
@@ -330,7 +372,13 @@ app.post(
       nodes: version.snapshot?.nodes || [],
       edges: version.snapshot?.edges || [],
     };
-    const diagram = await diagrams.saveGraph(req.params.id, graph, req.body?.revision ?? null);
+    let diagram = await diagrams.saveGraph(req.params.id, graph, req.body?.revision ?? null);
+    // Версия фиксирует и среду схемы (ADR-026): восстановление возвращает среду
+    // версии, иначе граф описывал бы состав одной среды, а карточка — другой.
+    const versionEnvironmentId = version.snapshot?.scope?.environmentId || null;
+    if (versionEnvironmentId && diagram.scopeEnvironmentId !== versionEnvironmentId) {
+      diagram = await diagrams.updateDiagramEnvironment(req.params.id, versionEnvironmentId);
+    }
     res.json({ diagram, graph });
   }),
 );
@@ -348,6 +396,8 @@ app.get(
       diagramType: diagram.diagramType,
       version: diagram.publishedVersion ?? diagram.revision,
       status: diagram.status,
+      // Среда схемы развертывания попадает в подпись экспортируемой схемы (ADR-026).
+      environmentCode: diagram.environmentCode || null,
     });
 
     if (String(req.query.inline || '') === '1') {
@@ -387,10 +437,31 @@ if (existsSync(distDir)) {
   });
 }
 
+/**
+ * Ошибки слоя данных переводятся в прикладные ответы (ТЗ §12): клиент модуля не
+ * должен получать HTTP 500 с текстом ошибки PostgreSQL на ошибку в данных.
+ * Коды: 23505 — нарушение уникальности, 23503 — ссылка на несуществующую запись,
+ * 22P02 — значение, которое не является uuid.
+ */
+const PG_ERRORS = {
+  23505: { status: 409, message: 'Нарушение уникальности: запись с такими ключевыми полями уже существует' },
+  23503: { status: 400, message: 'Ссылка на несуществующий объект реестра' },
+  '22P02': { status: 400, message: 'Некорректное значение идентификатора: ожидается uuid' },
+};
+
 app.use((err, req, res, next) => {
-  const status = err.status || 500;
+  const mapped = PG_ERRORS[err.code];
+  const status = err.status || (mapped ? mapped.status : 500);
+  let message = err.message || 'Internal Server Error';
+  if (!err.status && mapped) {
+    if (err.code === '23505' && err.constraint === 'uq_architecture_diagram_code') {
+      message = 'Схема с таким кодом уже существует';
+    } else {
+      message = mapped.message;
+    }
+  }
   if (status >= 500) console.error('[diagrams] API error:', err);
-  res.status(status).json({ error: err.message || 'Internal Server Error' });
+  res.status(status).json({ error: message });
 });
 
 app.use((req, res) => {

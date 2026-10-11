@@ -15,8 +15,8 @@ import {
 } from '@ant-design/icons'
 import { DIAGRAM_TYPE_LABEL, STATUS_LABEL } from '../model/c4Types'
 import type { DiagramMeta, ValidationResult, VersionItem } from '../model/diagramTypes'
-import { EXPORT_LABEL, EXPORT_PRIORITY, type ExportFormat } from '../api/exportApi'
 import type { EnvironmentOption } from '../api/registryApi'
+import { EXPORT_LABEL, EXPORT_PRIORITY, type ExportFormat } from '../api/exportApi'
 
 interface DiagramToolbarProps {
   meta: DiagramMeta
@@ -24,6 +24,8 @@ interface DiagramToolbarProps {
   saving: boolean
   validation: ValidationResult | null
   versions: VersionItem[]
+  /** Среды эксплуатации для выбора среды схемы развертывания (ADR-026). */
+  environments: EnvironmentOption[]
   canEdit: boolean
   canPublish: boolean
   canUndo: boolean
@@ -31,6 +33,7 @@ interface DiagramToolbarProps {
   onBack: () => void
   onSave: () => void
   onRegenerate: (mode: 'REBUILD' | 'SYNC') => void
+  onChangeEnvironment: (environmentId: string) => void
   onValidate: () => void
   onPublish: () => void
   onAutoLayout: () => void
@@ -38,11 +41,6 @@ interface DiagramToolbarProps {
   onRedo: () => void
   onExport: (format: ExportFormat) => void
   onRestore: (versionNo: number) => void
-  /** Срез схемы развертывания по среде (ТЗ §10.3) — только для DEPLOYMENT */
-  showEnvironment: boolean
-  environments: EnvironmentOption[]
-  environmentId: string | null
-  onChangeEnvironment: (environmentId: string | null) => void
 }
 
 /** Верхняя панель редактора: операции схемы, публикация и экспорт (ТЗ §11). */
@@ -52,6 +50,7 @@ export function DiagramToolbar({
   saving,
   validation,
   versions,
+  environments,
   canEdit,
   canPublish,
   canUndo,
@@ -59,6 +58,7 @@ export function DiagramToolbar({
   onBack,
   onSave,
   onRegenerate,
+  onChangeEnvironment,
   onValidate,
   onPublish,
   onAutoLayout,
@@ -66,13 +66,11 @@ export function DiagramToolbar({
   onRedo,
   onExport,
   onRestore,
-  showEnvironment,
-  environments,
-  environmentId,
-  onChangeEnvironment,
 }: DiagramToolbarProps) {
   const errors = validation?.summary.errors || 0
   const warnings = validation?.summary.warnings || 0
+  // Среда задаётся только схеме развертывания: она ограничивает состав размещений (ADR-026).
+  const isDeployment = meta.diagramType === 'DEPLOYMENT'
   return (
     <div className="arch-toolbar">
       <Space size={8} wrap>
@@ -85,14 +83,32 @@ export function DiagramToolbar({
             {meta.name}
           </Typography.Text>
           <span className="arch-toolbar__meta">
-            {meta.code} · {DIAGRAM_TYPE_LABEL[meta.diagramType]} · {STATUS_LABEL[meta.status] || meta.status} ·
-            revision {meta.revision}
+            {meta.code} · {DIAGRAM_TYPE_LABEL[meta.diagramType]} ·{' '}
+            {meta.environmentCode ? `среда ${meta.environmentCode} · ` : ''}
+            {STATUS_LABEL[meta.status] || meta.status} · revision {meta.revision}
             {meta.publishedVersion ? ` · опубликовано v${meta.publishedVersion}` : ''}
           </span>
         </div>
       </Space>
 
       <Space size={6} wrap>
+        {isDeployment ? (
+          <Tooltip title="Среда схемы развертывания: в схему попадают размещения только этой среды (ADR-026). Смена среды перестраивает схему.">
+            <Select
+              size="middle"
+              style={{ width: 190 }}
+              placeholder="Среда схемы"
+              value={meta.scopeEnvironmentId ?? undefined}
+              disabled={!canEdit}
+              onChange={(value: string) => onChangeEnvironment(value)}
+              options={environments.map((environment) => ({
+                value: environment.id,
+                label: `${environment.code} · ${environment.name}`,
+              }))}
+            />
+          </Tooltip>
+        ) : null}
+
         {dirty ? <Tag color="orange">Есть несохранённые изменения</Tag> : null}
         {meta.dependenciesDirty ? <Tag color="blue">Изменены зависимости реестра</Tag> : null}
 
@@ -115,25 +131,6 @@ export function DiagramToolbar({
         >
           <Button icon={<ReloadOutlined />}>Генерация</Button>
         </Dropdown>
-
-        {/* Срез схемы развертывания по среде (ТЗ §10.3): по каждому проекту
-            схему можно смотреть отдельно в разрезе теста, прода и т. п. */}
-        {showEnvironment ? (
-          <Tooltip title="Срез схемы развертывания по среде: пусто — показываются все среды">
-            <Select
-              size="middle"
-              style={{ width: 180 }}
-              placeholder="Среда (все)"
-              allowClear
-              value={environmentId ?? undefined}
-              onChange={(value?: string) => onChangeEnvironment(value ?? null)}
-              options={environments.map((environment) => ({
-                value: environment.id,
-                label: `${environment.code} · ${environment.name}`,
-              }))}
-            />
-          </Tooltip>
-        ) : null}
 
         <Tooltip title="Автоматическая раскладка по текущим связям (ТЗ §14)">
           <Button icon={<ThunderboltOutlined />} disabled={!canEdit} onClick={onAutoLayout}>

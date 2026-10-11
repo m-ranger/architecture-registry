@@ -326,8 +326,8 @@ export function normalizeContainers(nodes: ArchNode[]): ArchNode[] {
 }
 
 /**
- * Раскладка схемы развертывания: контуры сред → узлы размещения → экземпляры.
- * Совпадает с серверной раскладкой (server/layout.js, deploymentLayout).
+ * Раскладка схемы развертывания: контуры сетевых сегментов → узлы размещения →
+ * экземпляры. Совпадает с серверной раскладкой (server/layout.js, deploymentLayout).
  */
 export function localDeploymentLayout(nodes: ArchNode[]): {
   positions: Record<string, { x: number; y: number }>
@@ -342,7 +342,8 @@ export function localDeploymentLayout(nodes: ArchNode[]): {
   const positions: Record<string, { x: number; y: number }> = {}
   const sizes: Record<string, { width: number; height: number }> = {}
 
-  // Узел размещения принадлежит контуру среды: контур задаёт полосу раскладки.
+  // Узел размещения принадлежит контуру сетевого сегмента: контур задаёт полосу
+  // раскладки.
   const groups = new Map<string, ArchNode[]>()
   for (const container of nodes.filter((node) => isContainerNode(node))) {
     const key = container.parent || '__root__'
@@ -375,7 +376,8 @@ export function localDeploymentLayout(nodes: ArchNode[]): {
     cursorY = rowY + rowHeight + groupGap
   }
 
-  // Элементы вне узлов размещения (аннотации, свободные экземпляры) — ниже полос сред.
+  // Элементы вне узлов размещения (аннотации, свободные экземпляры) — ниже полос
+  // контуров сетевых сегментов.
   let orphanY = cursorY
   for (const node of nodes) {
     if (isBoundary(node.c4Type) || positions[node.id]) continue

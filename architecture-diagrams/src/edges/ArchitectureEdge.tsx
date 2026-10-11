@@ -2,7 +2,8 @@ import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps } from '
 
 /**
  * Связь архитектурной схемы.
- * Подпись — имя потока, дополнительная строка — протокол/порт из реестра (ТЗ §10.2).
+ * Подпись — имя потока (в схеме развертывания — описание информационного потока,
+ * ADR-024), дополнительная строка — протокол/порт из реестра (ТЗ §10.2).
  */
 export function ArchitectureEdge({
   id,
@@ -43,6 +44,7 @@ export function ArchitectureEdge({
         <EdgeLabelRenderer>
           <div
             className="arch-edge__label"
+            title={label ? String(label) : undefined}
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
             {label ? <span>{String(label)}</span> : null}

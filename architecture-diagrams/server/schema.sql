@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS architecture_diagram (
         CHECK (diagram_type IN ('SYSTEM_CONTEXT','CONTAINER','DEPLOYMENT')),
     scope_type         varchar(50)   NOT NULL,
     scope_object_id    uuid          NULL,
+    -- Среда схемы развертывания: в схему попадают только размещения этой среды
+    -- (ADR-026). У схем контекста и контейнеров колонка не заполняется.
+    scope_environment_id uuid        NULL REFERENCES environment(id) ON DELETE RESTRICT,
     status             varchar(20)   NOT NULL DEFAULT 'DRAFT'
         CHECK (status IN ('DRAFT','PUBLISHED','ARCHIVED')),
     revision           integer       NOT NULL DEFAULT 1,
@@ -78,9 +81,19 @@ CREATE TABLE IF NOT EXISTS diagram_version (
 CREATE INDEX IF NOT EXISTS ix_diagram_version_diagram
     ON diagram_version(diagram_id, version_no DESC);
 
--- 5. Срез схемы по среде ----------------------------------------------------
--- Диаграмма развертывания строится в разрезе одной среды (тест, прод и т. п.):
--- NULL — схема показывает все среды, как было до появления среза.
+-- 5. Среда схемы развертывания (ADR-026) -------------------------------------
+-- Схема развертывания строится для одной среды: в состав попадают только
+-- действующие размещения экземпляров этой среды (module_instance.environment_id),
+-- а контуром служит сетевой сегмент узла размещения (ADR-025).
+-- Колонка добавляется идемпотентно: у существующих схем значение пустое, поэтому
+-- схема развертывания не проходит валидацию (ENVIRONMENT_SCOPE_MISSING) до выбора
+-- среды в редакторе или через PATCH /api/diagrams/{id}/environment.
 ALTER TABLE architecture_diagram
-    ADD COLUMN IF NOT EXISTS scope_environment_id uuid NULL
-        REFERENCES environment(id) ON DELETE RESTRICT;
+    ADD COLUMN IF NOT EXISTS scope_environment_id uuid REFERENCES environment(id) ON DELETE RESTRICT;
+
+-- Схемы контекста и контейнеров среду не используют: значение снимается, чтобы
+-- смена смысла колонки не оставляла «фантомный» разрез у других типов схем.
+UPDATE architecture_diagram
+   SET scope_environment_id = NULL
+ WHERE diagram_type <> 'DEPLOYMENT'
+   AND scope_environment_id IS NOT NULL;

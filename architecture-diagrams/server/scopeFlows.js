@@ -5,7 +5,6 @@ import {
   getProjectFlows,
   getSystemsOfModules,
   getModuleDeployments,
-  getEnvironment,
   ownerAddressKey,
 } from './registry.js';
 import { loadAddresses, flowDeploymentEdges, flowTechnology, preferredAddress } from './graph.js';
@@ -14,11 +13,12 @@ import { loadAddresses, flowDeploymentEdges, flowTechnology, preferredAddress } 
  * Состав потоков области схемы — данные панели «Потоки области» в редакторе.
  *
  * Панель показывает все потоки области (проекта или информационной системы) и
- * отмечает, какие из них отражены на схеме развертывания. Связи на canvas, как и
- * прежде, строятся только между размещениями выбранного среза по среде, поэтому
- * поток, у которого контрагент не развернут в срезе, остаётся в списке со
- * статусом «вне среза» и причиной — иначе он был бы не виден нигде (ТЗ §10.3,
- * §17; вариант «связи только в срезе + панель потоков области»).
+ * отмечает, какие из них отражены на схеме развертывания. Связь схемы строится
+ * между размещениями сторон потока в выбранной среде схемы (ADR-026), поэтому
+ * поток, у которого сторона не развёрнута в этой среде, остаётся в списке со
+ * статусом «не развёрнут» и причиной — иначе он был бы не виден нигде
+ * (ТЗ §10.3, §17). Контуром схемы остаётся сетевой сегмент узла размещения
+ * (ADR-025).
  */
 
 const ipOf = (address) => (address ? String(address.ip_address || '').replace(/\/\d+$/, '') : null);
@@ -40,36 +40,33 @@ function placementAddress(deployment, addresses) {
 }
 
 /** Причина, по которой поток не отражён на схеме развертывания. */
-function missingReason(source, target, environmentCode) {
-  const environment = environmentCode ? `среде ${environmentCode}` : 'ни одной среде';
+function missingReason(source, target) {
   const title = (value) => `${value.systemCode ? `${value.systemCode}/` : ''}${value.moduleCode}`;
 
   if (source.placements.length === 0 && target.placements.length === 0) {
-    return `Ни одна сторона не развернута в ${environment}`;
+    return 'Ни одна сторона потока не развёрнута в среде схемы: у модулей нет действующих размещений';
   }
   const missing = source.placements.length === 0 ? source : target;
-  return `Контрагент не развернут в ${environment}: ${title(missing)}`;
+  return `Контрагент не развёрнут в среде схемы: у модуля ${title(missing)} нет действующего размещения`;
 }
 
 /**
- * Описание потоков области схемы: стороны, их размещения в срезе и связи схемы.
- * @param {object} diagram карточка схемы (scopeType, scopeObjectId, scopeEnvironmentId)
+ * Описание потоков области схемы: стороны, их размещения и связи схемы.
+ * @param {object} diagram карточка схемы (scopeType, scopeObjectId)
  * @param {object} graph   сохранённый граф схемы — для списка существующих связей
  */
 export async function describeScopeFlows(diagram, graph) {
   const scopeType = String(diagram.scopeType || 'information_system');
   const scopeId = diagram.scopeObjectId || null;
-  const environmentId = diagram.scopeEnvironmentId || null;
-  const environment = environmentId ? await getEnvironment(environmentId) : null;
 
   const scope = {
     type: scopeType,
     id: scopeId,
     name: null,
     code: null,
-    environmentId,
-    environmentCode: environment?.code || null,
-    environmentName: environment?.name || null,
+    // Среда схемы развертывания: размещения сторон ищутся только в ней (ADR-026).
+    environmentId: diagram.scopeEnvironmentId || null,
+    environmentCode: diagram.environmentCode || null,
   };
 
   let flows = [];
@@ -91,9 +88,11 @@ export async function describeScopeFlows(diagram, graph) {
   const systems = await getSystemsOfModules(moduleIds);
   const systemById = new Map(systems.map((system) => [system.id, system]));
 
-  // Размещения сторон в срезе и адреса узлов: server/cluster -> network_interface.
-  const deployments = await getModuleDeployments(moduleIds, 'ACTIVE', environmentId);
-  const addresses = await loadAddresses(deployments, environmentId);
+  // Размещения сторон и адреса узлов: server/cluster -> network_interface.
+  // Состав ограничен средой схемы: панель показывает развёрнутость сторон именно
+  // в этой среде (ADR-026).
+  const deployments = await getModuleDeployments(moduleIds, 'ACTIVE', diagram.scopeEnvironmentId || null);
+  const addresses = await loadAddresses(deployments);
 
   const placementsByModule = new Map();
   for (const deployment of deployments) {
@@ -111,8 +110,8 @@ export async function describeScopeFlows(diagram, graph) {
     });
   }
 
-  // Связи, которые образует каждый поток в срезе (алгоритм генератора схемы).
-  const sliceEdges = flowDeploymentEdges(deployments, flows);
+  // Связи, которые образует каждый поток на схеме (алгоритм генератора схемы).
+  const flowEdges = flowDeploymentEdges(deployments, flows);
   const graphEdges = new Set(((graph && graph.edges) || []).map((edge) => edge.id));
 
   const sideOf = (flow, prefix) => ({
@@ -126,11 +125,13 @@ export async function describeScopeFlows(diagram, graph) {
   });
 
   const items = flows.map((flow) => {
-    const detected = sliceEdges.get(flow.id) || [];
+    const detected = flowEdges.get(flow.id) || [];
     const onCanvas = detected.filter((edgeId) => graphEdges.has(edgeId));
     const source = sideOf(flow, 'source');
     const target = sideOf(flow, 'target');
-    const inSlice = detected.length > 0;
+    // Обе стороны развёрнуты в среде схемы: у каждой есть действующее размещение,
+    // поэтому связь между размещениями существует и поток попадает на схему.
+    const deployed = detected.length > 0;
 
     return {
       id: flow.id,
@@ -139,18 +140,20 @@ export async function describeScopeFlows(diagram, graph) {
       status: flow.status,
       technology: flowTechnology(flow) || null,
       protocolCode: flow.protocol_code || null,
+      sourcePort: flow.source_port || flow.default_port || null,
+      targetPort: flow.target_port || flow.default_port || null,
       source,
       target,
-      /** Поток развернут в срезе: размещения обеих сторон есть в выбранной среде. */
-      inSlice,
+      /** Обе стороны потока развёрнуты в среде схемы (ADR-026). */
+      deployed,
       /** Связи потока, присутствующие в графе схемы (можно показать на canvas). */
       edgeIds: onCanvas,
       /** Причина, по которой поток не отражён на схеме. */
-      reason: inSlice
+      reason: deployed
         ? onCanvas.length === 0
           ? 'Связь удалена со схемы: выполните синхронизацию с реестром'
           : null
-        : missingReason(source, target, scope.environmentCode),
+        : missingReason(source, target),
     };
   });
 
@@ -159,8 +162,8 @@ export async function describeScopeFlows(diagram, graph) {
     flows: items,
     summary: {
       total: items.length,
-      inSlice: items.filter((item) => item.inSlice).length,
-      outOfSlice: items.filter((item) => !item.inSlice).length,
+      deployed: items.filter((item) => item.deployed).length,
+      notDeployed: items.filter((item) => !item.deployed).length,
       onCanvas: items.filter((item) => item.edgeIds.length > 0).length,
     },
   };

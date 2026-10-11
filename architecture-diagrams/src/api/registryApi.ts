@@ -23,16 +23,15 @@ export interface ProjectOption {
 }
 
 /**
- * Среда эксплуатации — срез схемы развертывания (ТЗ §10.3): по каждому проекту
- * схему развертывания можно смотреть отдельно в разрезе теста, прода и т. п.
+ * Среда эксплуатации — параметр области схемы развертывания (ADR-026):
+ * одна схема развертывания описывает размещения одной среды.
  */
 export interface EnvironmentOption {
   id: string
   code: string
   name: string
-  criticality: string | null
   status: string
-  description: string | null
+  criticality: string | null
 }
 
 export interface FlowRow {
@@ -40,6 +39,8 @@ export interface FlowRow {
   code: string
   name: string
   status: string
+  targetPort: number | null
+  sourcePort: number | null
   sourceId: string
   sourceCode: string
   sourceName: string
@@ -64,8 +65,11 @@ export const registryApi = {
   /** Проекты для выбора области схемы «в разрезе проекта» (FR-002). */
   projects: (query = '') => api.get<ProjectOption[]>(`/registry/projects?q=${q(query)}`),
 
-  /** Среды эксплуатации: выбор среза схемы развертывания по среде (ТЗ §10.3). */
-  environments: () => api.get<EnvironmentOption[]>('/registry/environments'),
+  /**
+   * Среды эксплуатации — для выбора среды схемы развертывания (ADR-026).
+   * Варианта «все среды» нет: схема развертывания строится для одной среды.
+   */
+  environments: (query = '') => api.get<EnvironmentOption[]>(`/registry/environments?q=${q(query)}`),
 
   /** Поиск ИС, модулей, экземпляров, серверов, кластеров и потоков (FR-006). */
   search: (query = '', types?: string[]) => {

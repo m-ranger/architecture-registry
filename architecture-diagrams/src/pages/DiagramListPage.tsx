@@ -18,7 +18,12 @@ import {
 } from 'antd'
 import { DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { diagramsApi, type CreateDiagramInput } from '../api/diagramsApi'
-import { registryApi, type ProjectOption, type SystemOption } from '../api/registryApi'
+import {
+  registryApi,
+  type EnvironmentOption,
+  type ProjectOption,
+  type SystemOption,
+} from '../api/registryApi'
 import {
   DIAGRAM_TYPE_HINT,
   DIAGRAM_TYPE_LABEL,
@@ -49,9 +54,13 @@ export function DiagramListPage() {
   const [saving, setSaving] = useState(false)
   const [systems, setSystems] = useState<{ value: string; label: string }[]>([])
   const [projects, setProjects] = useState<{ value: string; label: string }[]>([])
+  /** Среды эксплуатации: обязательны для схемы развертывания (ADR-026). */
+  const [environments, setEnvironments] = useState<{ value: string; label: string }[]>([])
   const [form] = Form.useForm<CreateDiagramInput>()
   /** Область схемы: информационная система (по умолчанию) или проект. */
   const scopeType = (Form.useWatch('scopeType', form) ?? 'information_system') as ScopeType
+  /** Тип схемы: у схемы развертывания дополнительно запрашивается среда (ADR-026). */
+  const diagramType = (Form.useWatch('diagramType', form) ?? 'CONTAINER') as DiagramType
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -68,13 +77,15 @@ export function DiagramListPage() {
     void load()
   }, [load])
 
-  /** Диалог создания: подгружаем обе области схемы — ИС и проекты (FR-002). */
+  /** Диалог создания: подгружаем обе области схемы — ИС и проекты, а также среды (FR-002). */
   const openModal = async () => {
     setModalOpen(true)
     try {
-      const [systemList, projectList] = await Promise.all([
+      const [systemList, projectList, environmentList] = await Promise.all([
         registryApi.systems(),
         registryApi.projects(),
+        // Среды нужны схеме развертывания: состав ограничен размещениями одной среды.
+        registryApi.environments(),
       ])
       setSystems(
         systemList.map((item: SystemOption) => ({ value: item.id, label: `${item.code} · ${item.name}` })),
@@ -86,9 +97,16 @@ export function DiagramListPage() {
           label: `${item.code} · ${item.name} (потоков: ${item.flowsCnt})`,
         })),
       )
+      setEnvironments(
+        environmentList.map((item: EnvironmentOption) => ({
+          value: item.id,
+          label: `${item.code} · ${item.name}`,
+        })),
+      )
     } catch {
       setSystems([])
       setProjects([])
+      setEnvironments([])
     }
   }
 
@@ -96,7 +114,12 @@ export function DiagramListPage() {
     try {
       const values = await form.validateFields()
       setSaving(true)
-      const payload = await diagramsApi.create(values)
+      const payload = await diagramsApi.create({
+        ...values,
+        // Среда передаётся только схеме развертывания: у остальных типов схем
+        // состава размещений нет (ADR-026).
+        environmentId: values.diagramType === 'DEPLOYMENT' ? values.environmentId ?? null : null,
+      })
       message.success(`Схема ${payload.diagram.code} создана`)
       setModalOpen(false)
       form.resetFields()
@@ -165,6 +188,14 @@ export function DiagramListPage() {
               dataIndex: 'diagramType',
               width: 150,
               render: (value: DiagramType) => <Tag bordered={false}>{DIAGRAM_TYPE_LABEL[value] || value}</Tag>,
+            },
+            {
+              // Среда схемы развертывания: одна схема описывает одну среду (ADR-026).
+              title: 'Среда',
+              dataIndex: 'environmentCode',
+              width: 110,
+              render: (value: string | null | undefined) =>
+                value ? <Tag color="geekblue">{value}</Tag> : '—',
             },
             {
               title: 'Область',
@@ -240,7 +271,11 @@ export function DiagramListPage() {
           <Form.Item name="name" label="Название" rules={[{ required: true, message: 'Укажите название' }]}>
             <Input placeholder="Интеграционная система — Container" />
           </Form.Item>
-          <Form.Item name="diagramType" label="Тип схемы" rules={[{ required: true }]}>
+          <Form.Item
+            name="diagramType"
+            label="Тип схемы"
+            rules={[{ required: true }]}
+          >
             <Select
               options={DIAGRAM_TYPES.map((type) => ({
                 value: type,
@@ -249,6 +284,21 @@ export function DiagramListPage() {
               }))}
             />
           </Form.Item>
+
+          {/*
+            Среда схемы развертывания (ADR-026): обязательна, потому что состав
+            схемы — размещения экземпляров именно этой среды. Варианта «все среды» нет.
+          */}
+          {diagramType === 'DEPLOYMENT' ? (
+            <Form.Item
+              name="environmentId"
+              label="Среда эксплуатации"
+              tooltip="Схема развертывания строится для одной среды: в неё попадают размещения только этой среды"
+              rules={[{ required: true, message: 'Выберите среду — от неё зависит состав схемы' }]}
+            >
+              <Select placeholder="Выберите среду" options={environments} />
+            </Form.Item>
+          ) : null}
 
           {/* Область схемы: по ИС или в разрезе проекта (FR-002) */}
           <Form.Item

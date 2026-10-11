@@ -129,9 +129,14 @@ export const CONTAINER_MIN_WIDTH = 270;
 export const CONTAINER_MIN_HEIGHT = 120;
 const CONTAINER_MAX_COLUMNS = 3;
 
-/** Границы контуров: System Boundary / Environment Boundary. */
+/**
+ * Границы контуров: System Boundary, Environment Boundary (ручной контур) и
+ * Network Segment Boundary — контур схемы развертывания (ADR-025).
+ */
 export const isBoundaryType = (c4Type) =>
-  c4Type === 'SystemBoundary' || c4Type === 'EnvironmentBoundary';
+  c4Type === 'SystemBoundary' ||
+  c4Type === 'EnvironmentBoundary' ||
+  c4Type === 'NetworkSegmentBoundary';
 
 /** Узел размещения — контейнер экземпляров модулей (ТЗ §6, §10.3). */
 export const isContainerNode = (node) => Boolean(node) && node.c4Type === 'DeploymentNode';
@@ -242,10 +247,10 @@ export function normalizeContainers(nodes) {
 }
 
 /**
- * Раскладка схемы развертывания: контуры сред → узлы размещения → экземпляры.
- * Экземпляры укладываются внутрь своего узла, рамка узла растягивается под
- * состав; контуры сред (EnvironmentBoundary) считаются по составу на canvas и
- * в экспорте (ТЗ §10.3, §14).
+ * Раскладка схемы развертывания: контуры сетевых сегментов → узлы размещения →
+ * экземпляры. Экземпляры укладываются внутрь своего узла, рамка узла
+ * растягивается под состав; контуры сегментов (NetworkSegmentBoundary)
+ * считаются по составу на canvas и в экспорте (ТЗ §10.3, §14, ADR-025).
  * @param {Array} nodes узлы графа (позиции и размеры возвращаются отдельно)
  * @returns {{positions:Record<string,{x:number,y:number}>,sizes:Record<string,{width:number,height:number}>}}
  */
@@ -259,8 +264,9 @@ export function deploymentLayout(nodes, options = {}) {
   const positions = {};
   const sizes = {};
 
-  // Узел размещения всегда принадлежит контуру среды: контур задаёт полосу
-  // раскладки, поэтому узлы группируются по своему родителю.
+  // Узел размещения принадлежит контуру сетевого сегмента: контур задаёт полосу
+  // раскладки, поэтому узлы группируются по своему родителю. Узел, у которого
+  // сегмент не заведён, попадает в группу без контура.
   const groups = new Map();
   for (const container of nodes.filter(isContainerNode)) {
     const key = container.parent || '__root__';
@@ -293,7 +299,8 @@ export function deploymentLayout(nodes, options = {}) {
     cursorY = rowY + rowHeight + groupGap;
   }
 
-  // Элементы вне узлов размещения (аннотации, свободные экземпляры) — ниже полос сред.
+  // Элементы вне узлов размещения (аннотации, свободные экземпляры) — ниже полос
+  // контуров сетевых сегментов.
   let orphanY = cursorY;
   for (const node of nodes) {
     if (isBoundaryType(node.c4Type) || positions[node.id]) continue;

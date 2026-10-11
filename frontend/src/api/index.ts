@@ -446,12 +446,12 @@ export interface DiagramInput {
   /** Область схемы: information_system (по умолчанию) или project */
   scopeType?: string
   scopeObjectId?: string | null
-  description?: string
   /**
-   * Срез схемы развертывания по среде (ТЗ §10.3): отдельная схема на тест,
-   * прод и т. п. Схема без среза показывает все среды.
+   * Среда схемы развертывания (ADR-026): обязательна для diagramType='DEPLOYMENT',
+   * у схем контекста и контейнеров не задаётся.
    */
   environmentId?: string | null
+  description?: string
   /** false — создать пустую схему без автогенерации по данным реестра */
   generate?: boolean
 }

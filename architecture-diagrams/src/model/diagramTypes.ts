@@ -45,8 +45,17 @@ export interface ArchGraph {
   diagram: {
     id?: string
     type: string
-    /** Срез по среде: схема развертывания одной среды, null — все среды (ТЗ §10.3) */
-    scope: { objectType: string; objectId: string | null; environmentId?: string | null }
+    /**
+     * Область схемы: информационная система или проект (ТЗ §10).
+     * environmentId — среда схемы развертывания: одна схема описывает размещения
+     * одной среды (ADR-026); у схем контекста и контейнеров значение пустое.
+     */
+    scope: {
+      objectType: string
+      objectId: string | null
+      environmentId?: string | null
+      environmentCode?: string | null
+    }
   }
   nodes: ArchNode[]
   edges: ArchEdge[]
@@ -123,11 +132,11 @@ export interface DiagramMeta {
   scopeType: ScopeType
   scopeObjectId: string | null
   /**
-   * Срез схемы по среде (ТЗ §10.3): диаграмма развертывания строится отдельно
-   * для каждой среды — тест, прод и т. п. null — схема показывает все среды.
+   * Среда схемы развертывания (ADR-026): обязательна для diagramType='DEPLOYMENT',
+   * для схем контекста и контейнеров не заполняется.
    */
   scopeEnvironmentId: string | null
-  /** Код и наименование среды среза — заполняет API модуля в списке схем */
+  /** Код и наименование среды — JOIN в API модуля (для подписи карточки схемы). */
   environmentCode?: string | null
   environmentName?: string | null
   status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
@@ -190,7 +199,7 @@ export interface MetaInfo {
   permissions: { view: boolean; edit: boolean; publish: boolean; export: boolean }
 }
 
-/** Размещение стороны потока в срезе схемы развертывания (панель «Потоки области»). */
+/** Размещение стороны потока на схеме развертывания (панель «Потоки области»). */
 export interface ScopeFlowPlacement {
   deploymentId: string
   instanceId: string
@@ -209,7 +218,7 @@ export interface ScopeFlowPlacement {
   addressText: string
 }
 
-/** Сторона потока области: модуль, ИС и его размещения в срезе. */
+/** Сторона потока области: модуль, ИС и его размещения. */
 export interface ScopeFlowSide {
   moduleId: string
   moduleCode: string
@@ -222,8 +231,8 @@ export interface ScopeFlowSide {
 
 /**
  * Поток области схемы: связь реестра, её отражение на схеме и причина, по
- * которой поток на схеме не отражён (контрагент не развернут в срезе).
- * Связи на canvas строятся только между размещениями выбранного среза.
+ * которой поток на схеме не отражён (сторона не развёрнута — нет действующего
+ * размещения). Связь схемы строится между размещениями сторон потока.
  */
 export interface ScopeFlow {
   id: string
@@ -232,32 +241,36 @@ export interface ScopeFlow {
   status: string
   technology: string | null
   protocolCode: string | null
+  sourcePort: number | null
+  targetPort: number | null
   source: ScopeFlowSide
   target: ScopeFlowSide
-  /** Размещения обеих сторон есть в срезе — поток попал на схему. */
-  inSlice: boolean
+  /** Обе стороны развёрнуты — поток попал на схему. */
+  deployed: boolean
   /** Идентификаторы связей графа, образованных этим потоком (для фокуса). */
   edgeIds: string[]
   reason: string | null
 }
 
-/** Ответ API модуля: потоки области схемы и их срезовая сводка. */
+/** Ответ API модуля: потоки области схемы и их сводка. */
 export interface ScopeFlowsReport {
   scope: {
     type: string
     id: string | null
     name: string | null
     code: string | null
+    /** Среда схемы развертывания: размещения сторон ищутся только в ней (ADR-026). */
     environmentId: string | null
     environmentCode: string | null
-    environmentName: string | null
   }
   flows: ScopeFlow[]
-  summary: { total: number; inSlice: number; outOfSlice: number; onCanvas: number }
+  summary: { total: number; deployed: number; notDeployed: number; onCanvas: number }
 }
 
 export const isBoundary = (c4Type: string) =>
-  c4Type === C4_TYPE.SYSTEM_BOUNDARY || c4Type === C4_TYPE.ENVIRONMENT_BOUNDARY
+  c4Type === C4_TYPE.SYSTEM_BOUNDARY ||
+  c4Type === C4_TYPE.ENVIRONMENT_BOUNDARY ||
+  c4Type === C4_TYPE.NETWORK_SEGMENT_BOUNDARY
 
 /** Секция проекта, к которой относится объект реестра — для перехода в карточку (ТЗ §22). */
 export const REGISTRY_ROUTE: Record<string, string> = {

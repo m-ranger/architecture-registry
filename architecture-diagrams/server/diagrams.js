@@ -45,8 +45,12 @@ const mapDiagramRow = (row) => ({
   diagramType: row.diagram_type,
   scopeType: row.scope_type,
   scopeObjectId: row.scope_object_id,
-  // Срез схемы по среде (диаграмма развертывания в разрезе среды, ТЗ §10.3).
+  // Среда схемы развертывания (ADR-026): обязательна для диаграмм развертывания,
+  // у схем контекста и контейнеров не заполняется. Код и наименование среды приходят
+  // из JOIN (listDiagrams) или из скалярных подзапросов RETURNING (запись схемы).
   scopeEnvironmentId: row.scope_environment_id || null,
+  environmentCode: row.environment_code || null,
+  environmentName: row.environment_name || null,
   status: row.status,
   revision: row.revision,
   publishedVersion: row.published_version,
@@ -82,7 +86,7 @@ export async function listDiagrams() {
       ON d.scope_type = 'information_system' AND isys.id = d.scope_object_id
     LEFT JOIN project prj
       ON d.scope_type = 'project' AND prj.id = d.scope_object_id
-    -- Срез схемы по среде: у схемы развертывания может быть выбрана одна среда.
+    -- Среда схемы развертывания: схема строится для одной среды (ADR-026).
     LEFT JOIN environment env ON env.id = d.scope_environment_id
     ORDER BY d.updated_at DESC
   `);
@@ -92,8 +96,6 @@ export async function listDiagrams() {
     edgeCount: Number(row.edge_count),
     scopeName: row.scope_name,
     scopeCode: row.scope_code,
-    environmentCode: row.environment_code || null,
-    environmentName: row.environment_name || null,
   }));
 }
 
@@ -112,7 +114,7 @@ export async function findDiagram(idOrCode) {
 export async function getDiagramGraph(idOrCode) {
   const diagram = await findDiagram(idOrCode);
 
-  const [elementRes, relationshipRes] = await Promise.all([
+  const [elementRes, relationshipRes, environmentRes] = await Promise.all([
     pool.query(
       `SELECT * FROM architecture_diagram_element WHERE diagram_id = $1 ORDER BY node_key`,
       [diagram.id],
@@ -126,7 +128,14 @@ export async function getDiagramGraph(idOrCode) {
        ORDER BY r.edge_key`,
       [diagram.id],
     ),
+    // Среда схемы развертывания: код среды нужен подписи схемы (ADR-026).
+    diagram.scope_environment_id
+      ? pool.query(`SELECT id, code, name FROM environment WHERE id = $1`, [
+          diagram.scope_environment_id,
+        ])
+      : Promise.resolve({ rows: [] }),
   ]);
+  const environment = environmentRes.rows[0] || null;
 
   const nodes = elementRes.rows.map((row) => {
     const { style, description } = unpackStyle(row.style_json);
@@ -159,7 +168,11 @@ export async function getDiagramGraph(idOrCode) {
   }));
 
   return {
-    diagram: mapDiagramRow(diagram),
+    diagram: {
+      ...mapDiagramRow(diagram),
+      environmentCode: environment?.code || null,
+      environmentName: environment?.name || null,
+    },
     graph: {
       schemaVersion: '1.0',
       diagram: {
@@ -168,8 +181,10 @@ export async function getDiagramGraph(idOrCode) {
         scope: {
           objectType: diagram.scope_type,
           objectId: diagram.scope_object_id,
-          // Срез по среде: схема развертывания одной среды (NULL — все среды).
+          // Среда схемы развертывания (ADR-026): по ней валидация проверяет, что
+          // состав схемы соответствует выбранной среде.
           environmentId: diagram.scope_environment_id || null,
+          environmentCode: environment?.code || null,
         },
       },
       nodes,
@@ -178,7 +193,7 @@ export async function getDiagramGraph(idOrCode) {
   };
 }
 
-/** Срез схемы по среде: environmentId опционален и должен быть корректным UUID. */
+/** Среда схемы — идентификатор должен быть корректным uuid (ADR-026). */
 function normalizeEnvironmentId(environmentId) {
   if (!environmentId) return null;
   if (!UUID_RE.test(String(environmentId))) {
@@ -187,13 +202,36 @@ function normalizeEnvironmentId(environmentId) {
   return String(environmentId);
 }
 
+/**
+ * Проверка среды схемы развертывания (ADR-026).
+ * Среда обязательна для диаграммы развертывания, должна существовать в реестре и
+ * не быть выведенной из эксплуатации: по ней ограничивается состав схемы, поэтому
+ * несуществующая или RETIRED-среда дала бы пустую или недостоверную схему.
+ */
+async function requireActiveEnvironment(environmentId) {
+  const environment = normalizeEnvironmentId(environmentId);
+  if (!environment) {
+    throw httpError(400, 'Для схемы развертывания обязательна среда (environmentId)');
+  }
+  const { rows } = await pool.query(
+    `SELECT id, code, name, status FROM environment WHERE id = $1`,
+    [environment],
+  );
+  if (!rows[0]) throw httpError(404, `Среда не найдена: ${environment}`);
+  if (String(rows[0].status).toUpperCase() === 'RETIRED') {
+    throw httpError(400, `Среда «${rows[0].code}» выведена из эксплуатации`);
+  }
+  return rows[0];
+}
+
 /** Создание схемы (FR-001, ТЗ §12 POST /api/diagrams). */
 export async function createDiagram(input) {
   const { code, name, description, diagramType, scopeType, scopeObjectId, environmentId } = input;
   if (!code || !name || !diagramType) {
     throw httpError(400, 'Поля code, name и diagramType обязательны');
   }
-  if (!['SYSTEM_CONTEXT', 'CONTAINER', 'DEPLOYMENT'].includes(String(diagramType).toUpperCase())) {
+  const type = String(diagramType).toUpperCase();
+  if (!['SYSTEM_CONTEXT', 'CONTAINER', 'DEPLOYMENT'].includes(type)) {
     throw httpError(400, `Неподдерживаемый diagramType: ${diagramType}`);
   }
   // Область схемы: информационная система (по умолчанию) или проект.
@@ -201,7 +239,9 @@ export async function createDiagram(input) {
   if (!SCOPE_TYPES.includes(scope)) {
     throw httpError(400, `Неподдерживаемый scopeType: ${scopeType}`);
   }
-  const environment = normalizeEnvironmentId(environmentId);
+  // Среда — обязательный параметр области для схемы развертывания (ADR-026);
+  // у схем контекста и контейнеров среда не задаётся.
+  const environment = type === 'DEPLOYMENT' ? await requireActiveEnvironment(environmentId) : null;
   const { rows } = await pool.query(
     `INSERT INTO architecture_diagram
        (code, name, description, diagram_type, scope_type, scope_object_id, scope_environment_id,
@@ -212,10 +252,10 @@ export async function createDiagram(input) {
       code,
       name,
       description || null,
-      String(diagramType).toUpperCase(),
+      type,
       scope,
       scopeObjectId || null,
-      environment,
+      environment?.id || null,
       USER,
     ],
   );
@@ -223,22 +263,27 @@ export async function createDiagram(input) {
 }
 
 /**
- * Смена среза схемы по среде (ТЗ §10.3).
- * environmentId = null — срез снимается, схема показывает все среды.
- * Граф после смены среза перестраивается вызывающим кодом (POST .../generate).
+ * Смена среды схемы развертывания (ADR-026).
+ * Среда меняется только у диаграммы развертывания; граф после смены среды
+ * перестраивается вызывающим кодом — среда меняет состав размещений, поэтому
+ * сохранять старую раскладку нельзя.
  */
-export async function updateDiagramSlice(idOrCode, environmentId = null) {
+export async function updateDiagramEnvironment(idOrCode, environmentId = null) {
   const diagram = await findDiagram(idOrCode);
-  const environment = normalizeEnvironmentId(environmentId);
+  if (String(diagram.diagram_type).toUpperCase() !== 'DEPLOYMENT') {
+    throw httpError(400, 'Смена среды предусмотрена только для схем развертывания');
+  }
+  const environment = await requireActiveEnvironment(environmentId);
   const { rows } = await pool.query(
     `UPDATE architecture_diagram
         SET scope_environment_id = $2,
             updated_at = now(),
             updated_by = $3,
+            status = CASE WHEN status = 'PUBLISHED' THEN 'DRAFT' ELSE status END,
             dependencies_dirty = false
       WHERE id = $1
-      RETURNING *`,
-    [diagram.id, environment, USER],
+      RETURNING *, ${ENVIRONMENT_COLUMNS}`,
+    [diagram.id, environment.id, USER],
   );
   return mapDiagramRow(rows[0]);
 }
@@ -260,10 +305,35 @@ const EDGE_COLUMNS =
 const CHUNK = 100;
 
 /**
+ * Скалярные подзапросы кода и наименования среды для RETURNING (ADR-026).
+ * Ответы записи (сохранение, генерация, публикация, смена среды) должны нести код
+ * среды: подпись схемы в редакторе и подпись экспорта читают его из карточки, а не
+ * загружают схему заново после каждого сохранения.
+ */
+const ENVIRONMENT_COLUMNS =
+  '(SELECT code FROM environment WHERE id = scope_environment_id) AS environment_code, ' +
+  '(SELECT name FROM environment WHERE id = scope_environment_id) AS environment_name';
+
+/**
+ * Проверка формы графа перед записью (ТЗ §8).
+ * Без проверки пустой объект `{}` принимается как «граф без элементов» и стирает
+ * состав схемы, а строка/число приводят к TypeError уже внутри транзакции.
+ */
+function assertGraphShape(graph) {
+  if (!graph || typeof graph !== 'object' || Array.isArray(graph)) {
+    throw httpError(400, 'Поле graph должно быть объектом внутренней графовой модели');
+  }
+  if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
+    throw httpError(400, 'Поле graph должно содержать массивы nodes и edges');
+  }
+}
+
+/**
  * Атомарная запись графа: элементы и связи заменяются целиком внутри транзакции.
  * Выполняется на одном клиенте, поэтому схема никогда не остаётся частично записанной.
  */
 async function writeGraph(client, diagramId, graph) {
+  assertGraphShape(graph);
   // Инвариант схемы развертывания соблюдается и на записи: экземпляры модулей
   // находятся внутри рамки своего узла размещения (ТЗ §10.3). Нормализованный
   // граф возвращается в ответе API, поэтому canvas и хранилище согласованы.
@@ -379,7 +449,7 @@ export async function saveGraph(idOrCode, graph, expectedRevision = null) {
               status = CASE WHEN status = 'PUBLISHED' THEN 'DRAFT' ELSE status END,
               dependencies_dirty = false
         WHERE id = $1
-        RETURNING *`,
+        RETURNING *, ${ENVIRONMENT_COLUMNS}`,
       [diagram.id, USER],
     );
     await client.query('COMMIT');
@@ -407,7 +477,7 @@ export async function applyGeneratedGraph(idOrCode, graph) {
               status = CASE WHEN status = 'PUBLISHED' THEN 'DRAFT' ELSE status END,
               dependencies_dirty = false
         WHERE id = $1
-        RETURNING *`,
+        RETURNING *, ${ENVIRONMENT_COLUMNS}`,
       [diagram.id, USER],
     );
     await client.query('COMMIT');
@@ -434,8 +504,10 @@ export async function markDependenciesDirty(idOrCode, dirty = true) {
  * Публикация схемы (FR-012, ТЗ §18).
  * Snapshot неизменяем и самодостаточен для восстановления canvas (ТЗ §8).
  * Проверка ERROR-ов выполняется вызывающим кодом до вызова publishDiagram.
+ * expectedRevision — optimistic locking: публикация устаревшей копии canvas
+ * (пока схему правил другой пользователь) отклоняется с HTTP 409.
  */
-export async function publishDiagram(idOrCode) {
+export async function publishDiagram(idOrCode, expectedRevision = null) {
   const { diagram, graph } = await getDiagramGraph(idOrCode);
   const client = await pool.connect();
   try {
@@ -444,6 +516,13 @@ export async function publishDiagram(idOrCode) {
       `SELECT revision FROM architecture_diagram WHERE id = $1 FOR UPDATE`,
       [diagram.id],
     );
+    const currentRevision = Number(locked.rows[0].revision);
+    if (expectedRevision != null && Number(expectedRevision) !== currentRevision) {
+      throw httpError(
+        409,
+        `Конфликт версий: передана revision=${expectedRevision}, актуальная revision=${currentRevision}`,
+      );
+    }
     const { rows: nextRows } = await client.query(
       `SELECT COALESCE(MAX(version_no), 0) + 1 AS next FROM diagram_version WHERE diagram_id = $1`,
       [diagram.id],
@@ -455,9 +534,14 @@ export async function publishDiagram(idOrCode) {
       code: diagram.code,
       name: diagram.name,
       diagramType: diagram.diagramType,
-      scope: { objectType: diagram.scopeType, objectId: diagram.scopeObjectId },
-      environmentId: diagram.scopeEnvironmentId || null,
-      revision: Number(locked.rows[0].revision),
+      // Среда схемы развертывания фиксируется в версии: публикация описывает
+      // состав размещений именно этой среды (ADR-026).
+      scope: {
+        objectType: diagram.scopeType,
+        objectId: diagram.scopeObjectId,
+        environmentId: diagram.scopeEnvironmentId || null,
+      },
+      revision: currentRevision,
       publishedAt: new Date().toISOString(),
       nodes: graph.nodes,
       edges: graph.edges,
@@ -472,7 +556,7 @@ export async function publishDiagram(idOrCode) {
       `UPDATE architecture_diagram
           SET status = 'PUBLISHED', published_version = $2, updated_at = now(), updated_by = $3
         WHERE id = $1
-        RETURNING *`,
+        RETURNING *, ${ENVIRONMENT_COLUMNS}`,
       [diagram.id, versionNo, USER],
     );
     await client.query('COMMIT');

@@ -5,6 +5,7 @@ import {
   AppstoreOutlined,
   ClusterOutlined,
   DatabaseOutlined,
+  DeploymentUnitOutlined,
   FileTextOutlined,
   PlusOutlined,
   SearchOutlined,
@@ -30,6 +31,8 @@ const C4_LEGEND = [
   { icon: <AppstoreOutlined style={{ color: '#2f6bff' }} />, label: 'Container', hint: 'application_module' },
   { icon: <ClusterOutlined style={{ color: '#7c5cff' }} />, label: 'Deployment Instance', hint: 'module_instance' },
   { icon: <DatabaseOutlined style={{ color: '#f59e0b' }} />, label: 'Deployment Node', hint: 'server / cluster' },
+  // Контур схемы развертывания — сетевой сегмент узла размещения (ADR-025).
+  { icon: <DeploymentUnitOutlined style={{ color: '#0ea5e9' }} />, label: 'Network Segment Boundary', hint: 'network_segment' },
   { icon: <FileTextOutlined style={{ color: '#b45309' }} />, label: 'Annotation', hint: 'свободный элемент' },
 ]
 

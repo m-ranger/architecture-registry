@@ -28,7 +28,8 @@ const DIAGRAM_TYPE_LABEL: Record<DiagramType, string> = {
 const DIAGRAM_TYPE_HINT: Record<DiagramType, string> = {
   SYSTEM_CONTEXT: 'Информационная система и связанные системы (по информационным потокам)',
   CONTAINER: 'Модули ИС как Container, потоки между модулями',
-  DEPLOYMENT: 'Контуры, узлы размещения (серверы/кластеры), экземпляры модулей и адреса развертывания; срез по среде',
+  DEPLOYMENT:
+    'Сетевые сегменты, узлы размещения (серверы/кластеры), экземпляры модулей и адреса развертывания выбранной среды',
 }
 
 const DIAGRAM_TYPE_COLOR: Record<DiagramType, string> = {
@@ -103,6 +104,8 @@ export default function DiagramsPage() {
   const { data: informationSystems } = useApi(informationSystemsApi.getAll)
   /** Проекты реестра — для варианта области «Проект» (FR-002) */
   const { data: projects } = useApi(projectsApi.getAll)
+  /** Среды эксплуатации: обязательны для схемы развертывания (ADR-026) */
+  const { data: environments } = useApi(environmentsApi.getAll)
   const [q, setQ] = useState('')
   const [typeFilter, setTypeFilter] = useState<DiagramType | undefined>()
   const [statusFilter, setStatusFilter] = useState<string | undefined>()
@@ -112,9 +115,8 @@ export default function DiagramsPage() {
   const [form] = Form.useForm<DiagramInput>()
   /** Выбранная область схемы: информационная система (по умолчанию) или проект */
   const scopeType = (Form.useWatch('scopeType', form) ?? 'information_system') as ScopeType
-  /** Тип схемы: срез по среде доступен только схеме развертывания (ТЗ §10.3) */
-  const diagramType = Form.useWatch('diagramType', form) as DiagramType | undefined
-  const { data: environments } = useApi(environmentsApi.getAll)
+  /** Тип схемы: у схемы развертывания дополнительно запрашивается среда (ADR-026) */
+  const diagramType = (Form.useWatch('diagramType', form) ?? 'CONTAINER') as DiagramType
 
   const items = diagrams ?? []
   const published = items.filter((d) => d.status === 'PUBLISHED').length
@@ -137,7 +139,13 @@ export default function DiagramsPage() {
     try {
       const values = await form.validateFields()
       setSubmitting(true)
-      const created = await diagramsApi.create({ ...values, scopeType: values.scopeType ?? 'information_system' })
+      const created = await diagramsApi.create({
+        ...values,
+        scopeType: values.scopeType ?? 'information_system',
+        // Среда передаётся только схеме развертывания: у остальных типов схем
+        // состава размещений нет (ADR-026).
+        environmentId: values.diagramType === 'DEPLOYMENT' ? values.environmentId ?? null : null,
+      })
       message.success(`Схема «${created.diagram.code}» создана`)
       setFormDrawerOpen(false)
       form.resetFields()
@@ -211,6 +219,14 @@ export default function DiagramsPage() {
       ),
     },
     {
+      // Среда схемы развертывания: одна схема описывает одну среду (ADR-026)
+      title: 'Среда',
+      dataIndex: 'environmentCode',
+      key: 'environment',
+      width: 110,
+      render: (v?: string | null) => (v ? <Tag color='geekblue'>{v}</Tag> : '—'),
+    },
+    {
       title: 'Область',
       key: 'scope',
       width: 260,
@@ -222,20 +238,6 @@ export default function DiagramsPage() {
             </Tag>
             {`${record.scopeCode} · ${record.scopeName ?? ''}`}
           </Space>
-        ) : (
-          '—'
-        ),
-    },
-    {
-      // Срез схемы развертывания по среде: отдельная схема на тест, прод и т. п.
-      title: 'Среда',
-      key: 'environment',
-      width: 140,
-      render: (_: unknown, record: DiagramListItem) =>
-        record.environmentCode ? (
-          <Tooltip title='Срез схемы развертывания по среде (ТЗ §10.3)'>
-            <Tag color='geekblue'>{record.environmentCode}</Tag>
-          </Tooltip>
         ) : (
           '—'
         ),
@@ -431,6 +433,11 @@ export default function DiagramsPage() {
                   ? `${SCOPE_LABEL[active.scopeType as ScopeType] ?? active.scopeType}: ${active.scopeCode} · ${active.scopeName ?? ''}`
                   : '—'}
               </Descriptions.Item>
+              <Descriptions.Item label='Среда'>
+                {active.environmentCode
+                  ? `${active.environmentCode}${active.environmentName ? ` · ${active.environmentName}` : ''}`
+                  : '—'}
+              </Descriptions.Item>
               <Descriptions.Item label='Статус'>
                 <Tag color={STATUS_COLOR[active.status]}>{STATUS_LABEL[active.status] ?? active.status}</Tag>
               </Descriptions.Item>
@@ -498,6 +505,25 @@ export default function DiagramsPage() {
           <Form.Item label='Тип схемы' name='diagramType' rules={[{ required: true, message: 'Выберите тип схемы' }]}>
             <Select options={DIAGRAM_TYPE_OPTIONS} />
           </Form.Item>
+          {/*
+            Среда схемы развертывания (ADR-026): обязательна, потому что состав
+            схемы — размещения экземпляров именно этой среды. Варианта «все среды» нет.
+          */}
+          {diagramType === 'DEPLOYMENT' ? (
+            <Form.Item
+              label='Среда эксплуатации'
+              name='environmentId'
+              tooltip='Схема развертывания строится для одной среды: в неё попадают размещения только этой среды'
+              rules={[{ required: true, message: 'Выберите среду — от неё зависит состав схемы' }]}
+            >
+              <Select
+                showSearch
+                optionFilterProp='label'
+                placeholder='Выберите среду'
+                options={(environments ?? []).map((e) => ({ label: `${e.code} · ${e.name}`, value: e.id }))}
+              />
+            </Form.Item>
+          ) : null}
           <Form.Item
             label='Область схемы'
             name='scopeType'
@@ -529,19 +555,6 @@ export default function DiagramsPage() {
               }
             />
           </Form.Item>
-          {diagramType === 'DEPLOYMENT' ? (
-            <Form.Item
-              label='Среда (срез схемы развертывания)'
-              name='environmentId'
-              tooltip='Схема развертывания в разрезе одной среды: тест, прод и т. п. Пусто — схема показывает все среды (ТЗ §10.3)'
-            >
-              <Select
-                allowClear
-                placeholder='Все среды'
-                options={(environments ?? []).map((e) => ({ label: `${e.code} · ${e.name}`, value: e.id }))}
-              />
-            </Form.Item>
-          ) : null}
           <Form.Item label='Описание' name='description'>
             <Input.TextArea rows={2} placeholder='Что показывает схема' />
           </Form.Item>

@@ -60,7 +60,7 @@ export function validateDiagram(graph: ArchGraph): ValidationResult {
     if (node.c4Type !== C4_TYPE.DEPLOYMENT_INSTANCE) continue
     const host = node.parent ? byId.get(node.parent) : null
     if (!host) {
-      add('WARNING', 'INSTANCE_WITHOUT_NODE', `Экземпляр «${node.name}» не размещён на узле`, {
+      add('WARNING', 'INSTANCE_WITHOUT_NODE', `Экземпляр «${node.name}» не размещён на узле размещения`, {
         nodeId: node.id,
       })
       continue
@@ -88,6 +88,36 @@ export function validateDiagram(graph: ArchGraph): ValidationResult {
     }
   }
 
+  // Среда схемы развертывания обязательна (ADR-026): по ней ограничен состав
+  // размещений, поэтому схема без среды недостоверна и непубликуема. Проверка
+  // повторяет серверную, чтобы замечание было видно сразу в редакторе.
+  if (String(graph.diagram?.type || '').toUpperCase() === 'DEPLOYMENT') {
+    const scopeEnvironmentId = graph.diagram?.scope?.environmentId || null
+    if (!scopeEnvironmentId) {
+      add(
+        'ERROR',
+        'ENVIRONMENT_SCOPE_MISSING',
+        'Схема развертывания не привязана к среде эксплуатации: выберите среду — от неё зависит состав размещений',
+      )
+    }
+  }
+
+  // Схема развертывания (ТЗ §10.3): контур схемы — сетевой сегмент узла
+  // размещения (ADR-025). Узел вне контура читается как «сегмент не заведён
+  // у адресов развертывания» — предупреждение, как и на backend.
+  for (const node of nodes) {
+    if (node.c4Type !== C4_TYPE.DEPLOYMENT_NODE) continue
+    const segment = node.parent ? byId.get(node.parent) : null
+    if (!segment || segment.c4Type !== C4_TYPE.NETWORK_SEGMENT_BOUNDARY) {
+      add(
+        'WARNING',
+        'SEGMENT_MISSING',
+        `Узел «${node.name}» не отнесён к сетевому сегменту — у его адресов развертывания не заведён network_segment`,
+        { nodeId: node.id },
+      )
+    }
+  }
+
   const referenced = new Set<string>()
   for (const edge of edges) {
     referenced.add(edge.source)
@@ -95,6 +125,9 @@ export function validateDiagram(graph: ArchGraph): ValidationResult {
   }
   for (const node of nodes) {
     if (isBoundary(node.c4Type)) continue
+    // Узел размещения (C4 DeploymentNode) — контейнер: связи схемы развертывания
+    // идут между экземплярами внутри его рамки, поэтому узел без связей — норма (ADR-024).
+    if (node.c4Type === C4_TYPE.DEPLOYMENT_NODE) continue
     if (!node.registryRef) {
       add('INFO', 'FREE_ELEMENT', `Узел «${node.name}» не связан с объектом реестра`, { nodeId: node.id })
     }

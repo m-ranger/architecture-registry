@@ -78,25 +78,6 @@ export function DiagramEditorPage() {
   const { meta, setMeta, graph, setGraph, loading, load } = useDiagramState(id, navigate)
 
   const [saving, setSaving] = useState(false)
-  // Среды для среза схемы развертывания: отдельная схема на каждую среду (ТЗ §10.3).
-  const [environments, setEnvironments] = useState<EnvironmentOption[]>([])
-
-  // Справочник сред нужен только схеме развертывания — для выбора среза (ТЗ §10.3).
-  useEffect(() => {
-    if (meta?.diagramType !== 'DEPLOYMENT') return
-    let cancelled = false
-    registryApi
-      .environments()
-      .then((list) => {
-        if (!cancelled) setEnvironments(list)
-      })
-      .catch(() => {
-        // справочник сред недоступен — селектор среза останется пустым
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [meta?.diagramType])
   const [dirty, setDirty] = useState(false)
   const [validation, setValidation] = useState<ValidationResult | null>(null)
   const [versions, setVersions] = useState<VersionItem[]>([])
@@ -104,7 +85,7 @@ export function DiagramEditorPage() {
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null)
   const [validationOpen, setValidationOpen] = useState(false)
-  // Потоки области схемы: панель показывает и потоки вне среза (см. FR-002).
+  // Потоки области схемы: панель показывает и потоки, не отражённые на схеме (FR-002).
   const [scopeFlows, setScopeFlows] = useState<ScopeFlowsReport | null>(null)
   const [scopeFlowsLoading, setScopeFlowsLoading] = useState(false)
   const [scopeFlowsOpen, setScopeFlowsOpen] = useState(false)
@@ -116,6 +97,8 @@ export function DiagramEditorPage() {
     publish: true,
     export: true,
   })
+  /** Среды эксплуатации — выбор среды схемы развертывания (ADR-026). */
+  const [environments, setEnvironments] = useState<EnvironmentOption[]>([])
 
   const canEdit = permissions.edit
   const canPublish = permissions.publish
@@ -130,7 +113,8 @@ export function DiagramEditorPage() {
 
   /**
    * Потоки области схемы (панель «Потоки области»): список потоков проекта или ИС
-   * с отметкой попадания в срез и связями схемы, образованными каждым потоком.
+   * с отметкой развёрнутости размещений сторон (deployed / notDeployed) и связями
+   * схемы, образованными каждым потоком.
    */
   const refreshScopeFlows = useCallback(async () => {
     if (!id) return
@@ -163,6 +147,14 @@ export function DiagramEditorPage() {
       .meta()
       .then((info) => setPermissions(info.permissions))
       .catch(() => undefined)
+  }, [])
+
+  // Среды эксплуатации: селектор среды схемы развертывания (ADR-026).
+  useEffect(() => {
+    registryApi
+      .environments()
+      .then(setEnvironments)
+      .catch(() => setEnvironments([]))
   }, [])
 
   const issueIndex: IssueIndex = useMemo(() => buildIssueIndex(validation), [validation])
@@ -258,24 +250,27 @@ export function DiagramEditorPage() {
   }
 
   /**
-   * Срез схемы развертывания по среде (ТЗ §10.3): после смены среды граф
-   * перестраивается по данным реестра — адреса берутся из размещений среды.
+   * Смена среды схемы развертывания (ADR-026).
+   * Среда задаёт состав размещений, поэтому схема перестраивается целиком:
+   * ручная раскладка предыдущей среды не сохраняется.
    */
-  const handleEnvironmentChange = async (environmentId: string | null) => {
-    if (!meta || !canEdit) return
+  const handleEnvironmentChange = async (environmentId: string) => {
+    if (!meta || !canEdit || !environmentId || environmentId === meta.scopeEnvironmentId) return
+    if (
+      !window.confirm(
+        'Сменить среду схемы? Схема будет перестроена по размещениям выбранной среды, ручная раскладка сброшена.',
+      )
+    ) {
+      return
+    }
     setSaving(true)
     try {
-      const payload = await diagramsApi.patchSlice(meta.id, environmentId)
+      const payload = await diagramsApi.patchEnvironment(meta.id, environmentId)
       applyPayload(payload)
       await refreshScopeFlows()
-      const code = environments.find((environment) => environment.id === environmentId)?.code
-      message.success(
-        environmentId
-          ? `Схема построена по среде ${code ?? environmentId.slice(0, 8)}`
-          : 'Срез по среде снят: схема показывает все среды',
-      )
+      message.success(`Среда схемы: ${payload.diagram.environmentCode ?? environmentId}`)
     } catch (err) {
-      message.error(err instanceof Error ? err.message : 'Не удалось изменить срез по среде')
+      message.error(err instanceof Error ? err.message : 'Не удалось сменить среду схемы')
     } finally {
       setSaving(false)
     }
@@ -540,12 +535,11 @@ export function DiagramEditorPage() {
   const selectedEdge = graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null
   const boundaryCount = graph.nodes.filter((node) => isBoundary(node.c4Type)).length
   /** Подсказка об области схемы: информационная система или проект (FR-002). */
-  /** Срез по среде: код среды в подсказке области схемы (ТЗ §10.3). */
-  const sliceCode = environments.find((environment) => environment.id === meta.scopeEnvironmentId)?.code
   const scopeHint = meta.scopeObjectId
     ? [
         `${SCOPE_TYPE_LABEL[meta.scopeType] ?? meta.scopeType} · ${meta.scopeObjectId.slice(0, 8)}`,
-        sliceCode ? `срез: ${sliceCode}` : null,
+        // Среда схемы развертывания — часть области: состав ограничен её размещениями.
+        meta.diagramType === 'DEPLOYMENT' && meta.environmentCode ? `среда ${meta.environmentCode}` : null,
       ]
         .filter(Boolean)
         .join(' · ')
@@ -559,6 +553,7 @@ export function DiagramEditorPage() {
         saving={saving}
         validation={validation}
         versions={versions}
+        environments={environments}
         canEdit={canEdit}
         canPublish={canPublish}
         canUndo={history.length > 0}
@@ -566,9 +561,6 @@ export function DiagramEditorPage() {
         onBack={() => navigate('/diagrams')}
         onSave={() => void handleSave()}
         onRegenerate={(mode) => void handleGenerate(mode)}
-        showEnvironment={meta.diagramType === 'DEPLOYMENT'}
-        environments={environments}
-        environmentId={meta.scopeEnvironmentId ?? null}
         onChangeEnvironment={(environmentId) => void handleEnvironmentChange(environmentId)}
         onValidate={() => void handleValidate()}
         onPublish={() => void handlePublish()}
@@ -626,7 +618,7 @@ export function DiagramEditorPage() {
           </span>
           <span>контуров: {boundaryCount}</span>
           {scopeFlows ? (
-            <Tag color={scopeFlows.summary.outOfSlice > 0 ? 'orange' : 'blue'}>
+            <Tag color={scopeFlows.summary.notDeployed > 0 ? 'orange' : 'blue'}>
               потоки области: {scopeFlows.summary.total} · на схеме: {scopeFlows.summary.onCanvas}
             </Tag>
           ) : null}
@@ -641,7 +633,7 @@ export function DiagramEditorPage() {
           </Typography.Text>
         </Space>
         <Space size={8}>
-          <Badge count={scopeFlows?.summary.outOfSlice ?? 0} size="small" offset={[-4, 2]}>
+          <Badge count={scopeFlows?.summary.notDeployed ?? 0} size="small" offset={[-4, 2]}>
             <Button size="small" icon={<PartitionOutlined />} onClick={() => setScopeFlowsOpen(true)}>
               Потоки области
             </Button>

@@ -37,6 +37,8 @@ const C4_EXPECTED = {
   module_deployment: ['DeploymentInstance'],
   server: ['DeploymentNode'],
   cluster: ['DeploymentNode'],
+  // Сетевой сегмент — контур схемы развертывания (ADR-025).
+  network_segment: ['NetworkSegmentBoundary'],
   environment: ['EnvironmentBoundary'],
   information_flow: ['Relationship'],
   // Проект — область схемы «в разрезе проекта»: отображается как граница.
@@ -243,6 +245,9 @@ export async function validateGraph(graph, options = {}) {
   }
 
   // Изолированные узлы — информационное сообщение (ТЗ §17, класс INFO).
+  // Узлы размещения (C4 DeploymentNode) в проверке не участвуют: связь схемы
+  // развертывания идёт между экземплярами внутри рамки узла (ADR-024), поэтому
+  // узел размещения без связей — норма, а не замечание.
   const usedNodes = new Set();
   for (const edge of edges) {
     usedNodes.add(edge.source);
@@ -250,6 +255,10 @@ export async function validateGraph(graph, options = {}) {
   }
   for (const node of nodes) {
     if (node.c4Type === 'SystemBoundary' || node.c4Type === 'EnvironmentBoundary') continue;
+    // Контур схемы развертывания — сетевой сегмент (ADR-025): у рамки связей не
+    // бывает по построению, поэтому она в проверке не участвует.
+    if (node.c4Type === 'NetworkSegmentBoundary') continue;
+    if (node.c4Type === 'DeploymentNode') continue;
     if (!usedNodes.has(node.id)) {
       add('INFO', 'ORPHAN_NODE', `Узел «${node.name}» не участвует ни в одной связи`, {
         nodeId: node.id,
@@ -257,24 +266,38 @@ export async function validateGraph(graph, options = {}) {
     }
   }
 
-  // 10-12. Схема развертывания: адреса размещений и срез по среде (ТЗ §10.3).
-  // Диаграмма развертывания показывает, с какого адреса на какой выполняется
-  // поток, поэтому отсутствие адреса у узла размещения — предупреждение.
+  // 10-12. Схема развертывания: адреса размещений и контур сетевого сегмента
+  // (ТЗ §10.3, ADR-025). Диаграмма развертывания показывает, с какого адреса на
+  // какой выполняется поток, поэтому отсутствие адреса у узла размещения —
+  // предупреждение; узел вне контура сегмента — тоже предупреждение.
   if (String(graph.diagram?.type || '').toUpperCase() === 'DEPLOYMENT') {
     const byId = new Map(nodes.map((n) => [n.id, n]));
-    const sliceEnvironmentId = graph.diagram?.scope?.environmentId || null;
 
-    /** Ближайшая граница среды в цепочке parent — среда размещения. */
-    const environmentOf = (node) => {
-      let current = node.parent ? byId.get(node.parent) : null;
-      let guard = 0;
-      while (current && guard < 100) {
-        if (current.c4Type === 'EnvironmentBoundary') return current.registryRef?.id || null;
-        current = current.parent ? byId.get(current.parent) : null;
-        guard += 1;
+    // Среда схемы развертывания обязательна (ADR-026): по ней ограничивается
+    // состав размещений, поэтому схема без среды недостоверна и непубликуема.
+    const scopeEnvironmentId = graph.diagram?.scope?.environmentId || null;
+    if (!scopeEnvironmentId) {
+      add(
+        'ERROR',
+        'ENVIRONMENT_SCOPE_MISSING',
+        'Схема развертывания не привязана к среде эксплуатации: выберите среду — от неё зависит состав размещений',
+      );
+    } else {
+      // Размещения графа должны быть размещениями среды схемы: иначе состав схемы
+      // и среда в карточке расходятся (например, узел добавлен вручную с палитры).
+      for (const node of nodes) {
+        if (node.c4Type !== 'DeploymentInstance') continue;
+        const nodeEnvironmentId = node.style?.environmentId || null;
+        if (nodeEnvironmentId && nodeEnvironmentId !== scopeEnvironmentId) {
+          add(
+            'WARNING',
+            'ENVIRONMENT_SCOPE_MISMATCH',
+            `Размещение «${node.name}» относится к среде «${node.style?.environmentCode || '—'}», а схема построена для другой среды`,
+            { nodeId: node.id },
+          );
+        }
       }
-      return null;
-    };
+    }
 
     for (const node of nodes) {
       if (node.c4Type !== 'DeploymentNode' && node.c4Type !== 'DeploymentInstance') continue;
@@ -287,13 +310,15 @@ export async function validateGraph(graph, options = {}) {
           { nodeId: node.id },
         );
       }
-      if (node.c4Type === 'DeploymentInstance' && sliceEnvironmentId) {
-        const nodeEnvironmentId = environmentOf(node);
-        if (nodeEnvironmentId && nodeEnvironmentId !== sliceEnvironmentId) {
+      // Контур схемы — сетевой сегмент узла размещения (ADR-025): узел, который
+      // оказался вне контура, читается как «сегмент не заведён у адресов».
+      if (node.c4Type === 'DeploymentNode') {
+        const segment = node.parent ? byId.get(node.parent) : null;
+        if (!segment || segment.c4Type !== 'NetworkSegmentBoundary') {
           add(
-            'ERROR',
-            'ENVIRONMENT_SLICE_MISMATCH',
-            `Размещение «${node.name}» относится к другой среде, чем срез схемы`,
+            'WARNING',
+            'SEGMENT_MISSING',
+            `Узел «${node.name}» не отнесён к сетевому сегменту — у его адресов развертывания не заведён network_segment`,
             { nodeId: node.id },
           );
         }
@@ -354,10 +379,11 @@ export async function validateGraph(graph, options = {}) {
       }
     }
 
-    // Подпись связи схемы развертывания — адреса: «с какого адреса на какой».
+    // Подпись связи схемы развертывания — описание информационного потока
+    // (ADR-024): адресов «откуда → куда» в подписи больше нет.
     for (const edge of edges) {
-      if (!String(edge.label || '').includes('→')) {
-        add('WARNING', 'EDGE_ADDRESS_UNRESOLVED', `У связи ${edge.id} не определены адреса`, {
+      if (!String(edge.label || '').trim()) {
+        add('WARNING', 'EDGE_LABEL_MISSING', `У связи ${edge.id} нет описания потока`, {
           edgeId: edge.id,
         });
       }

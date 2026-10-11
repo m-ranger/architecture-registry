@@ -20,8 +20,8 @@ export interface CreateDiagramInput {
   scopeType?: string
   scopeObjectId?: string | null
   /**
-   * Срез схемы по среде (ТЗ §10.3): у схемы развертывания можно зафиксировать
-   * одну среду (тест, прод и т. п.), иначе схема строится по всем средам.
+   * Среда схемы развертывания (ADR-026): обязательна для diagramType='DEPLOYMENT',
+   * для схем контекста и контейнеров не задаётся.
    */
   environmentId?: string | null
   /** false — создать пустую схему без автогенерации (FR-001/FR-002). */
@@ -65,17 +65,18 @@ export const diagramsApi = {
     api.post<DiagramPayload>(`/diagrams/${id(diagramId)}/generate`, { mode }),
 
   /**
-   * Потоки области схемы (панель «Потоки области»): все потоки проекта или ИС,
-   * признак попадания в срез и связи схемы, образованные каждым потоком.
+   * Смена среды схемы развертывания (ADR-026).
+   * Среда задаёт состав размещений, поэтому граф перестраивается полностью:
+   * ручная раскладка предыдущей среды не переносится.
    */
-  flows: (diagramId: string) => api.get<ScopeFlowsReport>(`/diagrams/${id(diagramId)}/flows`),
+  patchEnvironment: (diagramId: string, environmentId: string) =>
+    api.patch<DiagramPayload>(`/diagrams/${id(diagramId)}/environment`, { environmentId }),
 
   /**
-   * Срез схемы развертывания по среде (ТЗ §10.3): граф перестраивается по
-   * данным реестра. environmentId = null — срез снимается (все среды).
+   * Потоки области схемы (панель «Потоки области»): все потоки проекта или ИС,
+   * признак того, что обе стороны развёрнуты, и связи схемы по каждому потоку.
    */
-  patchSlice: (diagramId: string, environmentId: string | null) =>
-    api.patch<DiagramPayload>(`/diagrams/${id(diagramId)}/slice`, { environmentId }),
+  flows: (diagramId: string) => api.get<ScopeFlowsReport>(`/diagrams/${id(diagramId)}/flows`),
 
   validate: (diagramId: string) =>
     api.post<ValidationResult>(`/diagrams/${id(diagramId)}/validate`),

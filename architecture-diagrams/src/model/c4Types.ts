@@ -10,6 +10,7 @@ export const C4_TYPE = {
   DEPLOYMENT_INSTANCE: 'DeploymentInstance',
   SYSTEM_BOUNDARY: 'SystemBoundary',
   ENVIRONMENT_BOUNDARY: 'EnvironmentBoundary',
+  NETWORK_SEGMENT_BOUNDARY: 'NetworkSegmentBoundary',
   ANNOTATION: 'Annotation',
 } as const
 
@@ -84,6 +85,20 @@ export const C4_VISUAL: Record<C4Type, C4Visual> = {
     height: 260,
     dashed: true,
   },
+  /**
+   * Контур схемы развертывания — сетевой сегмент узла размещения (ADR-025).
+   * Своя рамка и цвет, чтобы контур сегмента не путался с контуром ИС.
+   */
+  [C4_TYPE.NETWORK_SEGMENT_BOUNDARY]: {
+    label: 'Network Segment Boundary',
+    fill: 'rgba(14,165,233,0.06)',
+    stroke: '#0ea5e9',
+    text: '#0369a1',
+    tag: '#0ea5e9',
+    width: 380,
+    height: 280,
+    dashed: true,
+  },
   [C4_TYPE.ANNOTATION]: {
     label: 'Annotation',
     fill: '#fffbeb',
@@ -102,6 +117,8 @@ export const REGISTRY_TO_C4: Record<string, C4Type> = {
   module_instance: C4_TYPE.DEPLOYMENT_INSTANCE,
   server: C4_TYPE.DEPLOYMENT_NODE,
   cluster: C4_TYPE.DEPLOYMENT_NODE,
+  // Сетевой сегмент — контур схемы развертывания (ADR-025).
+  network_segment: C4_TYPE.NETWORK_SEGMENT_BOUNDARY,
   environment: C4_TYPE.ENVIRONMENT_BOUNDARY,
   information_flow: 'Relationship' as C4Type,
 }
@@ -119,8 +136,8 @@ export const DIAGRAM_TYPE_HINT: Record<DiagramType, string> = {
   SYSTEM_CONTEXT: 'Информационная система и связанные системы (по information_flow)',
   CONTAINER: 'Модули ИС как Container, потоки между модулями',
   DEPLOYMENT:
-    'Контуры, узлы размещения (server/cluster), экземпляры модулей и сетевые адреса ' +
-    'развертывания; можно зафиксировать срез по среде (тест, прод и т. п.)',
+    'Сетевые сегменты, узлы размещения (server/cluster) и экземпляры модулей: ' +
+    'контур схемы — сетевой сегмент узла размещения, размещения всех сред',
 }
 
 export const STATUS_LABEL: Record<string, string> = {

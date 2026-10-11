@@ -223,6 +223,13 @@ export interface DiagramListItem {
   /** Тип области схемы: information_system (по умолчанию) или project */
   scopeType: string
   scopeObjectId?: string | null
+  /**
+   * Среда схемы развертывания (ADR-026): у диаграммы развертывания состав ограничен
+   * размещениями этой среды; у схем контекста и контейнеров не заполняется.
+   */
+  scopeEnvironmentId?: string | null
+  environmentCode?: string | null
+  environmentName?: string | null
   status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
   revision: number
   publishedVersion?: number | null
@@ -233,13 +240,6 @@ export interface DiagramListItem {
   /** Код и наименование области схемы (ИС или проект) — JOIN в API модуля */
   scopeCode?: string | null
   scopeName?: string | null
-  /**
-   * Срез схемы развертывания по среде (ТЗ §10.3): у схемы может быть
-   * зафиксирована одна среда — тест, прод и т. п.
-   */
-  scopeEnvironmentId?: string | null
-  environmentCode?: string | null
-  environmentName?: string | null
   createdAt?: string
   createdBy?: string
   updatedAt?: string

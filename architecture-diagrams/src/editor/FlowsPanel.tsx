@@ -7,10 +7,10 @@ import type { ScopeFlow, ScopeFlowSide, ScopeFlowsReport } from '../model/diagra
  * Панель «Потоки области» (FR-002, FR-016).
  *
  * Показывает все информационные потоки области схемы — проекта или
- * информационной системы — и отмечает, какие из них отражены на схеме:
- * связи на canvas строятся только между размещениями выбранного среза по среде,
- * поэтому поток, у которого контрагент не развернут в среде, виден здесь
- * с причиной и переходом в карточку реестра.
+ * информационной системы — и отмечает, какие из них отражены на схеме: связь
+ * строится между размещениями сторон потока в выбранной среде схемы (ADR-026),
+ * поэтому поток, у которого сторона не развёрнута в этой среде, виден здесь с
+ * причиной и переходом в карточку реестра.
  */
 
 /** Состояние потока -> цвет тега. */
@@ -20,9 +20,9 @@ const STATUS_COLOR: Record<string, string> = {
   RETIRED: 'default',
 }
 
-type PanelFilter = 'all' | 'onCanvas' | 'inSlice' | 'outOfSlice'
+type PanelFilter = 'all' | 'onCanvas' | 'notDeployed'
 
-/** Подпись стороны потока: ИС/модуль и размещения в срезе. */
+/** Подпись стороны потока: ИС/модуль и его размещения. */
 function SideSummary({ side, emptyText }: { side: ScopeFlowSide; emptyText: string }) {
   return (
     <div className="arch-flow-item__side">
@@ -74,10 +74,8 @@ export function FlowsPanel({ report, loading, onFocusEdge, onOpenRegistry }: Flo
     switch (filter) {
       case 'onCanvas':
         return flows.filter((flow) => flow.edgeIds.length > 0)
-      case 'inSlice':
-        return flows.filter((flow) => flow.inSlice)
-      case 'outOfSlice':
-        return flows.filter((flow) => !flow.inSlice)
+      case 'notDeployed':
+        return flows.filter((flow) => !flow.deployed)
       default:
         return flows
     }
@@ -95,19 +93,15 @@ export function FlowsPanel({ report, loading, onFocusEdge, onOpenRegistry }: Flo
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Не удалось получить потоки области схемы" />
   }
 
-  const environment = report.scope.environmentCode
-    ? ` Срез схемы: среда ${report.scope.environmentCode}.`
-    : ' Срез по среде не задан — схема показывает все среды.'
-
   return (
     <div className="arch-flows">
       <Alert
-        type={summary && summary.outOfSlice > 0 ? 'warning' : 'success'}
+        type={summary && summary.notDeployed > 0 ? 'warning' : 'success'}
         showIcon
-        message={`Потоков области: ${summary?.total ?? 0} · на схеме: ${summary?.onCanvas ?? 0} · вне среза: ${summary?.outOfSlice ?? 0}`}
+        message={`Потоков области: ${summary?.total ?? 0} · на схеме: ${summary?.onCanvas ?? 0} · не развёрнуто: ${summary?.notDeployed ?? 0}`}
         description={`Область схемы: ${report.scope.type === 'project' ? 'проект' : 'информационная система'} ${
           report.scope.code ? `${report.scope.code} · ` : ''
-        }${report.scope.name ?? ''}.${environment} Связи строятся только между размещениями выбранного среза, поэтому потоки с контрагентом вне среза отмечаются причиной.`}
+        }${report.scope.name ?? ''}. Связи строятся между размещениями сторон потока, поэтому потоки, у которых сторона не развёрнута в среде схемы (нет действующего размещения), отмечаются причиной.`}
       />
 
       <div className="arch-flows__toolbar">
@@ -118,7 +112,10 @@ export function FlowsPanel({ report, loading, onFocusEdge, onOpenRegistry }: Flo
           options={[
             { value: 'all', label: `Все (${summary?.total ?? 0})` },
             { value: 'onCanvas', label: `На схеме (${summary?.onCanvas ?? 0})` },
-            { value: 'outOfSlice', label: `Вне среза (${summary?.outOfSlice ?? 0})` },
+            {
+              value: 'notDeployed',
+              label: `Не развёрнуто (${summary?.notDeployed ?? 0})`,
+            },
           ]}
         />
       </div>
@@ -137,14 +134,14 @@ export function FlowsPanel({ report, loading, onFocusEdge, onOpenRegistry }: Flo
                 <Typography.Text strong style={{ fontSize: 12 }}>{flow.code}</Typography.Text>
                 <Tag color={STATUS_COLOR[flow.status] || 'default'} bordered={false}>{flow.status}</Tag>
                 <Badge
-                  status={flow.edgeIds.length > 0 ? 'success' : flow.inSlice ? 'warning' : 'default'}
+                  status={flow.edgeIds.length > 0 ? 'success' : flow.deployed ? 'warning' : 'default'}
                   text={
                     <Typography.Text type="secondary" style={{ fontSize: 11 }}>
                       {flow.edgeIds.length > 0
                         ? `на схеме: связей ${flow.edgeIds.length}`
-                        : flow.inSlice
+                        : flow.deployed
                           ? 'связь отсутствует на схеме'
-                          : 'вне среза'}
+                          : 'сторона не развёрнута'}
                     </Typography.Text>
                   }
                 />
@@ -174,9 +171,9 @@ export function FlowsPanel({ report, loading, onFocusEdge, onOpenRegistry }: Flo
             </Typography.Text>
 
             <div className="arch-flow-item__sides">
-              <SideSummary side={flow.source} emptyText="Нет размещений в срезе" />
+              <SideSummary side={flow.source} emptyText="Нет действующих размещений" />
               <span className="arch-flow-item__arrow">→</span>
-              <SideSummary side={flow.target} emptyText="Нет размещений в срезе" />
+              <SideSummary side={flow.target} emptyText="Нет действующих размещений" />
             </div>
 
             {flow.reason ? (

@@ -33,7 +33,8 @@ import {
  *   module_instance     -> DeploymentInstance
  *   module_deployment   -> размещение Instance на DeploymentNode
  *   server / cluster    -> DeploymentNode
- *   environment         -> EnvironmentBoundary
+ *   network_segment     -> NetworkSegmentBoundary (контур схемы развертывания, ADR-025)
+ *   environment         -> EnvironmentBoundary (только вручную с палитры)
  *   information_flow    -> Relationship
  *   protocol            -> technology связи
  */
@@ -45,6 +46,7 @@ export const C4_TYPE = {
   DEPLOYMENT_INSTANCE: 'DeploymentInstance',
   SYSTEM_BOUNDARY: 'SystemBoundary',
   ENVIRONMENT_BOUNDARY: 'EnvironmentBoundary',
+  NETWORK_SEGMENT_BOUNDARY: 'NetworkSegmentBoundary',
   ANNOTATION: 'Annotation',
 };
 
@@ -55,6 +57,7 @@ const SIZE = {
   [C4_TYPE.DEPLOYMENT_INSTANCE]: { width: 230, height: 88 },
   [C4_TYPE.SYSTEM_BOUNDARY]: { width: 340, height: 240 },
   [C4_TYPE.ENVIRONMENT_BOUNDARY]: { width: 360, height: 260 },
+  [C4_TYPE.NETWORK_SEGMENT_BOUNDARY]: { width: 380, height: 280 },
   [C4_TYPE.ANNOTATION]: { width: 220, height: 80 },
 };
 
@@ -67,7 +70,7 @@ export const deploymentEdgeId = (sourceDeploymentId, targetDeploymentId) =>
   `dep:${sourceDeploymentId}->${targetDeploymentId}`;
 
 /**
- * Пары размещений, которые образует каждый поток области в срезе: размещение
+ * Пары размещений, которые образует каждый поток области схемы: размещение
  * источника → размещение приёмника. Тот же алгоритм использует генератор схемы
  * развертывания, поэтому идентификаторы связей совпадают, и панель
  * «Потоки области» находит связь на canvas.
@@ -132,8 +135,9 @@ export function flowTechnology(flow) {
 // Сетевые адреса размещения (ТЗ §10.3)
 // Адреса развертывания берутся из реестра (network_interface): у сервера —
 // адреса сервера, у кластера — адреса кластера (роль в кластере: INGRESS,
-// NODE, MANAGEMENT). Адрес отображается на узле размещения и подписывает
-// информационный поток («с какого адреса на какой»).
+// NODE, MANAGEMENT). Адрес отображается на узле размещения; подпись связи —
+// описание информационного потока (ADR-024). Там же у адреса берётся сетевой
+// сегмент: он задаёт контур схемы развертывания (ADR-025).
 // ---------------------------------------------------------------------------
 
 const addressRoleRank = (role) => {
@@ -151,17 +155,30 @@ export function sortAddresses(addresses = []) {
   });
 }
 
-/** Предпочтительный адрес узла — тот, которым подписывается поток. */
+/** Предпочтительный адрес узла — по нему берётся сегмент контура и адрес узла. */
 export function preferredAddress(addresses = []) {
   return sortAddresses(addresses)[0] || null;
 }
 
-/** Адрес без маски подсети и, при наличии, с портом. */
-export function addressWithPort(address, port) {
-  if (!address) return null;
-  const ip = String(address.ip_address || '').replace(/\/\d+$/, '');
-  if (!ip) return null;
-  return port ? `${ip}:${port}` : ip;
+/**
+ * Сетевой сегмент узла размещения — контур схемы развертывания (ADR-025).
+ * Узел может быть подключён к нескольким сегментам, но контур у узла один,
+ * поэтому сегмент берётся у предпочтительного адреса (правило ADR-020: сначала
+ * сервисный адрес, затем адрес узла и управление). Если адресов нет или у
+ * предпочтительного адреса не заведён network_segment, узла в контуре нет —
+ * это фиксирует валидация (`SEGMENT_MISSING`).
+ */
+export function ownerSegment(addresses = []) {
+  const address = preferredAddress(addresses);
+  if (!address || !address.segment_id) return null;
+  return {
+    id: address.segment_id,
+    code: address.segment_code || null,
+    name: address.segment_name || address.segment_code || 'Сетевой сегмент',
+    status: address.segment_status || null,
+    zoneCode: address.zone_code || null,
+    zoneName: address.zone_name || null,
+  };
 }
 
 /** Краткое описание адресов узла — подсказка узла и текст экспорта. */
@@ -173,23 +190,36 @@ export function addressSummary(addresses = [], limit = 4) {
   return rest > 0 ? `${list.join(', ')} и ещё ${rest}` : list.join(', ');
 }
 
-/** Подпись связи «адрес» по предпочтительным адресам сторон. */
-function addressPairText(sourceAddresses) {
-  const from = preferredAddress(sourceAddresses);
-  const to = preferredAddress(targetAddresses);
-  if (!from || !to) return null;
-  return `${from} → ${to}`;
+/**
+ * Описание информационного потока — подпись связи схемы развертывания (ADR-024).
+ * Поток без заполненного описания подписывается названием, затем кодом.
+ */
+export function flowDescription(flow) {
+  return String(flow.description || flow.name || flow.code || '').trim();
+}
+
+/**
+ * Подпись агрегированной связи: описание потока. Если в одну связь склеено
+ * несколько потоков, показывается описание первого и «+N» остальных — полный
+ * состав связей раскрывает панель «Потоки области».
+ */
+function flowEdgeLabel(descriptions, flowCount) {
+  const list = descriptions.filter(Boolean);
+  if (list.length === 0) return `потоков: ${flowCount}`;
+  return flowCount > 1 ? `${list[0]} +${flowCount - 1}` : list[0];
 }
 
 /**
  * Индекс адресов узлов размещения: server:<id> / cluster:<id> -> список адресов.
  * Узел, у которого адресов нет, в индекс не попадает — это фиксирует валидация.
- * Экспортируется для чтения состава потоков области (server/scopeFlows.js).
+ * В строках адреса приходит и его сетевой сегмент, поэтому индекс используется
+ * и для контуров схемы развертывания (ownerSegment), и для состава потоков
+ * области (server/scopeFlows.js).
  */
-export async function loadAddresses(deployments, environmentId) {
+export async function loadAddresses(deployments) {
   const serverIds = [...new Set(deployments.map((d) => d.server_id).filter(Boolean))];
   const clusterIds = [...new Set(deployments.map((d) => d.cluster_id).filter(Boolean))];
-  const rows = await getDeploymentAddresses({ serverIds, clusterIds, environmentId });
+  const rows = await getDeploymentAddresses({ serverIds, clusterIds });
 
   const index = new Map();
   for (const row of rows) {
@@ -203,11 +233,11 @@ export async function loadAddresses(deployments, environmentId) {
 
 /**
  * Раскладка графа (ТЗ §14).
- * Схема развертывания укладывается по уровням «контур среды → узел размещения →
- * экземпляр»: экземпляры находятся внутри рамки узла, а рамка растягивается под
- * состав (ТЗ §10.3). Остальные схемы сохраняют прежнее поведение: иерархия —
- * сетка, плоская схема — слоистая раскладка. Границы контуров считаются из
- * состава на клиенте и в экспорте.
+ * Схема развертывания укладывается по уровням «контур сетевого сегмента → узел
+ * размещения → экземпляр»: экземпляры находятся внутри рамки узла, а рамка
+ * растягивается под состав (ТЗ §10.3). Остальные схемы сохраняют прежнее
+ * поведение: иерархия — сетка, плоская схема — слоистая раскладка. Границы
+ * контуров считаются из состава на клиенте и в экспорте.
  * @returns {Array} узлы графа (возможно, новый массив — состав нормализован)
  */
 function applyLayout(nodes, edges, existingPositions = null) {
@@ -269,15 +299,10 @@ export const SCOPE_TYPES = {
  * Область описывается единым контекстом, поэтому все генераторы работают и по
  * ИС (модули ИС и её потоки), и по проекту (все информационные потоки проекта и
  * все модули, участвующие в проекте через эти интеграционные потоки).
+ * Среда схемы развертывания (environmentId) передаётся в выборку размещений:
+ * схема строится для одной среды эксплуатации (ADR-026).
  */
-/**
- * Загрузка области схемы.
- * Область описывается единым контекстом, поэтому все генераторы работают и по
- * ИС (модули ИС и её потоки), и по проекту (все информационные потоки проекта и
- * все модули, участвующие в проекте через эти интеграционные потоки).
- * environmentId — срез по среде (диаграмма развертывания в разрезе среды).
- */
-async function loadScope(scopeType, scopeId, { environmentId = null } = {}) {
+async function loadScope(scopeType, scopeId, environmentId = null) {
   if (scopeType === SCOPE_TYPES.PROJECT) {
     const project = await getProject(scopeId);
     if (!project) throw Object.assign(new Error('Scope project not found'), { status: 404 });
@@ -294,9 +319,9 @@ async function loadScope(scopeType, scopeId, { environmentId = null } = {}) {
       modules,
       flows,
       deployments,
-      systems,
-      addresses: await loadAddresses(deployments, environmentId),
       environmentId,
+      systems,
+      addresses: await loadAddresses(deployments),
       scopeKey: nodeKey(SCOPE_TYPES.PROJECT, project.id),
     };
   }
@@ -314,9 +339,9 @@ async function loadScope(scopeType, scopeId, { environmentId = null } = {}) {
     modules,
     flows,
     deployments,
-    systems: [system],
-    addresses: await loadAddresses(deployments, environmentId),
     environmentId,
+    systems: [system],
+    addresses: await loadAddresses(deployments),
     scopeKey: nodeKey(SCOPE_TYPES.INFORMATION_SYSTEM, system.id),
   };
 }
@@ -581,14 +606,19 @@ async function generateContainer(ctx) {
 }
 
 /**
- * §10.3 Deployment: environment — граница контура (срез схемы по среде),
- * server/cluster — Deployment Node, module_deployment — размещение экземпляра.
+ * §10.3 Deployment: network_segment — контур схемы (сегмент узла размещения,
+ * ADR-025), server/cluster — Deployment Node, module_deployment — размещение
+ * экземпляра. Уровни схемы: сегмент → узел размещения → экземпляр.
  *
  * Каждое размещение (module_deployment) отображается отдельным узлом, поэтому
  * экземпляр, развернутый на нескольких серверах, показывает адрес каждого
  * размещения; для экземпляров в кластере адресом служит адрес кластера.
- * Связи агрегируются из information_flow уровня модулей и подписываются
- * адресами: с какого адреса на какой выполняется поток.
+ * Связи агрегируются из information_flow уровня модулей и подписываются описанием
+ * потока (ADR-024): адресов «откуда → куда» в подписи больше нет.
+ * Схема строится для одной среды эксплуатации (ADR-026): в состав попадают только
+ * размещения экземпляров выбранной среды (`ctx.environmentId`), среда остаётся и
+ * атрибутом экземпляра (`style.environmentId` / `style.environmentCode`), а
+ * контуром служит сетевой сегмент узла размещения (ADR-025).
  * Для проекта в схему попадают размещения модулей, участвующих в его потоках.
  */
 async function generateDeployment(ctx) {
@@ -597,29 +627,43 @@ async function generateDeployment(ctx) {
   const nodes = [];
   const edges = [];
 
-  const environmentKeys = new Map();
+  const segmentKeys = new Map();
   const ownerKeys = new Map();
   const modulePlacements = new Map();
 
   for (const d of deployments) {
-    let envKey = environmentKeys.get(d.environment_id);
-    if (!envKey) {
-      envKey = nodeKey('environment', d.environment_id);
-      environmentKeys.set(d.environment_id, envKey);
-      nodes.push(
-        makeNode({
-          id: envKey,
-          registryRef: { type: 'environment', id: d.environment_id },
-          c4Type: C4_TYPE.ENVIRONMENT_BOUNDARY,
-          name: d.environment_name,
-          style: { variant: 'boundary', code: d.environment_code },
-        }),
-      );
-    }
-
     const ownerType = d.server_id ? 'server' : 'cluster';
     const ownerId = d.server_id || d.cluster_id;
     const ownerAddresses = ctx.addresses?.get(ownerAddressKey(ownerType, ownerId)) || [];
+    const segment = ownerSegment(ownerAddresses);
+
+    // Контур схемы — сетевой сегмент узла размещения (ADR-025). Узел, у которого
+    // сегмент не заведён, остаётся вне контуров: рисовать рамку нечем, а связь
+    // «узел вне сегмента» фиксирует валидация (`SEGMENT_MISSING`).
+    let parentKey = null;
+    if (segment) {
+      parentKey = segmentKeys.get(segment.id);
+      if (!parentKey) {
+        parentKey = nodeKey('network_segment', segment.id);
+        segmentKeys.set(segment.id, parentKey);
+        nodes.push(
+          makeNode({
+            id: parentKey,
+            registryRef: { type: 'network_segment', id: segment.id },
+            c4Type: C4_TYPE.NETWORK_SEGMENT_BOUNDARY,
+            name: segment.name,
+            technology: segment.zoneName ? `zone · ${segment.zoneName}` : null,
+            parent: null,
+            style: {
+              variant: 'boundary',
+              code: segment.code,
+              status: segment.status,
+              zone: segment.zoneCode,
+            },
+          }),
+        );
+      }
+    }
 
     let ownerKey = ownerKeys.get(ownerId);
     if (!ownerKey) {
@@ -638,10 +682,12 @@ async function generateDeployment(ctx) {
           // Адреса узла идут отдельным атрибутом (style.addresses), поэтому
           // описание не дублирует их в экспортируемых форматах (ТЗ §10.3).
           description: null,
-          parent: envKey,
+          parent: parentKey,
           style: {
             variant: 'infrastructure',
             status: d.server_status || d.cluster_status,
+            // Сетевой сегмент узла — контур схемы (пусто — контура нет, ADR-025)
+            segmentCode: segment?.code || null,
             // Адреса узла размещения: у сервера — интерфейсы, у кластера — адреса кластера
             addresses: ownerAddresses,
           },
@@ -666,6 +712,7 @@ async function generateDeployment(ctx) {
           status: d.instance_status,
           role: d.deployment_role,
           instanceId: d.instance_id,
+          environmentId: d.environment_id,
           environmentCode: d.environment_code,
           addresses: ownerAddresses,
         },
@@ -673,11 +720,11 @@ async function generateDeployment(ctx) {
     );
 
     if (!modulePlacements.has(d.module_id)) modulePlacements.set(d.module_id, new Map());
-    modulePlacements.get(d.module_id).set(d.id, { key: placementKey, addresses: ownerAddresses });
+    modulePlacements.get(d.module_id).set(d.id, { key: placementKey });
   }
 
   // Связи между размещениями агрегируются из information_flow уровня модулей,
-  // подпись — адреса: «с какого адреса на какой» выполняется поток.
+  // подпись — описание потока (ADR-024); адреса остаются на карточках узлов.
   const aggregated = new Map();
   for (const flow of flows) {
     const sources = modulePlacements.get(flow.source_id);
@@ -694,30 +741,20 @@ async function generateDeployment(ctx) {
           target: target.key,
           count: 0,
           technologies: new Set(),
-          pairs: new Set(),
+          descriptions: new Set(),
           flowIds: [],
         };
         item.count += 1;
         item.technologies.add(flowTechnology(flow));
         item.flowIds.push(flow.id);
-        const pair = addressPairText(
-          source.addresses,
-          flow.source_port || flow.default_port,
-          target.addresses,
-          flow.target_port || flow.default_port,
-        );
-        if (pair) item.pairs.add(pair);
+        item.descriptions.add(flowDescription(flow));
         aggregated.set(key, item);
       }
     }
   }
 
   for (const item of aggregated.values()) {
-    const pairs = Array.from(item.pairs);
-    const label =
-      pairs.length === 0
-        ? `потоков: ${item.count}`
-        : `${pairs.slice(0, 2).join(' · ')}${pairs.length > 2 ? ` +${pairs.length - 2}` : ''}`;
+    const label = flowEdgeLabel(Array.from(item.descriptions), item.count);
     edges.push(
       makeEdge({
         id: item.id,
@@ -741,11 +778,16 @@ const GENERATORS = {
   DEPLOYMENT: generateDeployment,
 };
 
+/** Режимы генерации (ТЗ §13): REBUILD перестраивает layout, SYNC хранит позиции. */
+const GENERATION_MODES = ['REBUILD', 'SYNC'];
+
 /**
  * Генерация внутренней графовой модели схемы (ТЗ §13).
  * mode=REBUILD — полная перестройка, включая layout;
  * mode=SYNC — сохраняет существующие позиции, обновляет состав и атрибуты.
  * scopeType — область схемы: information_system (по умолчанию) или project.
+ * environmentId — среда схемы развертывания (ADR-026): состав ограничивается
+ * размещениями этой среды; для схем контекста и контейнеров не используется.
  */
 export async function generateGraph({
   diagramType,
@@ -765,18 +807,26 @@ export async function generateGraph({
   if (!Object.values(SCOPE_TYPES).includes(scopeType)) {
     throw Object.assign(new Error(`Unsupported scopeType: ${scopeType}`), { status: 400 });
   }
+  // Режим генерации нормализуется и проверяется: неизвестный режим не должен
+  // молча превращаться в REBUILD и затирать ручные координаты пользователя.
+  const normalizedMode = String(mode).toUpperCase();
+  if (!GENERATION_MODES.includes(normalizedMode)) {
+    throw Object.assign(new Error(`Unsupported mode: ${mode}`), { status: 400 });
+  }
 
-  const ctx = await loadScope(scopeType, scopeId, { environmentId });
+  const ctx = await loadScope(scopeType, scopeId, environmentId);
   const { nodes, edges } = await generator(ctx);
   // Раскладка возвращает узлы: для схемы развертывания состав узлов нормализуется
   // (экземпляры оказываются внутри рамки своего узла размещения, ТЗ §10.3).
-  const laidOutNodes = applyLayout(nodes, edges, mode === 'SYNC' ? existingPositions : null);
+  const laidOutNodes = applyLayout(nodes, edges, normalizedMode === 'SYNC' ? existingPositions : null);
 
   return {
     schemaVersion: '1.0',
     diagram: {
       type: diagramType.toLowerCase(),
-      scope: { objectType: scopeType, objectId: scopeId },
+      // environmentId — среда схемы развертывания (ADR-026): по ней валидация
+      // проверяет, что состав схемы соответствует выбранной среде.
+      scope: { objectType: scopeType, objectId: scopeId, environmentId },
     },
     nodes: laidOutNodes,
     edges,
