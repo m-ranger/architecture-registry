@@ -19,6 +19,10 @@ CREATE TABLE information_system (
     description text            NULL,
     status      varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
     owner       varchar(255)    NULL,
+    -- Тип объекта (миграция 07): INTERNAL — собственная система организации,
+    -- EXTERNAL — внешняя система (подрядчик, партнёр, внешний сервис).
+    object_type varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     created_at  timestamptz     NOT NULL DEFAULT now(),
     created_by  varchar(255)    NOT NULL,
     updated_at  timestamptz     NOT NULL DEFAULT now(),
@@ -38,6 +42,9 @@ CREATE TABLE application_module (
     module_type             varchar(50)     NULL CHECK (module_type IN ('FRONTEND','BACKEND','API','INTEGRATION','DATABASE','BATCH','ADAPTER')),
     version                 varchar(100)    NULL,
     status                  varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
+    -- Тип объекта наследуется от ИС (правила — sql/07_object_types.sql).
+    object_type             varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     created_at              timestamptz     NOT NULL DEFAULT now(),
     created_by              varchar(255)    NOT NULL,
     updated_at              timestamptz     NOT NULL DEFAULT now(),
@@ -87,6 +94,10 @@ CREATE TABLE server (
     id          uuid            PRIMARY KEY DEFAULT gen_random_uuid(),
     name        varchar(255)    NOT NULL,
     server_type varchar(50)     NULL,
+    -- Тип объекта (миграция 07): INTERNAL — собственный сервер,
+    -- EXTERNAL — внешний (подрядчик, партнёр, внешняя площадка).
+    object_type varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     status      varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
     description text            NULL,
     created_at  timestamptz     NOT NULL DEFAULT now(),
@@ -101,6 +112,10 @@ CREATE TABLE cluster (
     id                  uuid            PRIMARY KEY DEFAULT gen_random_uuid(),
     name                varchar(255)    NOT NULL,
     cluster_type        varchar(50)     NOT NULL,
+    -- Тип объекта (миграция 07): INTERNAL — собственный кластер,
+    -- EXTERNAL — внешний (управляемый сервис, площадка подрядчика).
+    object_type         varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     version             varchar(100)    NULL,
     management_address  varchar(255)    NULL,
     status              varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
@@ -120,6 +135,10 @@ CREATE TABLE module_deployment (
     cluster_id          uuid            NULL REFERENCES cluster(id) ON DELETE RESTRICT,
     deployment_role     varchar(50)     NULL CHECK (deployment_role IN ('PRIMARY','SECONDARY','REPLICA','ACTIVE','PASSIVE','SERVICE')),
     deployment_state    varchar(30)     NOT NULL CHECK (deployment_state IN ('ACTIVE','STANDBY','RETIRED')),
+    -- Тип объекта наследуется от цели размещения: сервера или кластера
+    -- (правила — sql/07_object_types.sql).
+    object_type         varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     valid_from          timestamptz     NULL,
     valid_to            timestamptz     NULL,
     created_at          timestamptz     NOT NULL DEFAULT now(),
@@ -242,6 +261,10 @@ CREATE TABLE network_interface (
     -- Роль адреса в кластере: INGRESS (точка входа), NODE (узел кластера),
     -- MANAGEMENT (управление) — значения ограничены CHECK ниже.
     interface_role      varchar(50)     NULL,
+    -- Тип объекта наследуется от владельца адреса: сервера или кластера;
+    -- у адреса маршрутизатора и МЭ — INTERNAL (правила — sql/07_object_types.sql).
+    object_type         varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     status              varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
     CONSTRAINT chk_network_interface_owner CHECK (
         (CASE WHEN server_id IS NOT NULL THEN 1 ELSE 0 END +

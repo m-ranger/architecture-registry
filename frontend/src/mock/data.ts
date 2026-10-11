@@ -6,11 +6,11 @@ import type {
 } from '../types'
 
 export const informationSystems: InformationSystem[] = [
-  { id: 'is-001', code: 'IS-IB', name: 'Internet Banking', description: 'Канал обслуживания клиентов через интернет', status: 'ACTIVE', owner: 'Дigital Channels', createdAt: '2025-03-11T09:00:00Z', createdBy: 'admin', updatedAt: '2026-08-14T10:22:00Z', updatedBy: 's.ivanov' },
-  { id: 'is-002', code: 'IS-CUSTOMER', name: 'Customer Information System', description: 'Мастер-данные клиентов', status: 'ACTIVE', owner: 'Core Banking', createdAt: '2025-01-20T09:00:00Z', createdBy: 'admin', updatedAt: '2026-09-01T08:05:00Z', updatedBy: 'n.petrov' },
-  { id: 'is-003', code: 'IS-CORE', name: 'Core Banking System', description: 'Расчетные счета и платежи', status: 'ACTIVE', owner: 'Core Banking', createdAt: '2024-11-02T09:00:00Z', createdBy: 'admin', updatedAt: '2026-10-01T11:40:00Z', updatedBy: 'n.petrov' },
-  { id: 'is-004', code: 'IS-CRM', name: 'CRM', description: 'Работа с клиентами в отделениях', status: 'PLANNED', owner: 'Sales', createdAt: '2026-06-05T09:00:00Z', createdBy: 'm.smirnova', updatedAt: '2026-09-28T12:00:00Z', updatedBy: 'm.smirnova' },
-  { id: 'is-005', code: 'IS-LEGACY-CC', name: 'Legacy Card Processing', description: 'Выведено из эксплуатации, историческая фиксация', status: 'RETIRED', owner: 'Payments', createdAt: '2023-04-10T09:00:00Z', createdBy: 'admin', updatedAt: '2026-02-27T16:30:00Z', updatedBy: 'a.kuznetsov' },
+  { id: 'is-001', code: 'IS-IB', name: 'Internet Banking', description: 'Канал обслуживания клиентов через интернет', status: 'ACTIVE', owner: 'Дigital Channels', objectType: 'INTERNAL', createdAt: '2025-03-11T09:00:00Z', createdBy: 'admin', updatedAt: '2026-08-14T10:22:00Z', updatedBy: 's.ivanov' },
+  { id: 'is-002', code: 'IS-CUSTOMER', name: 'Customer Information System', description: 'Мастер-данные клиентов', status: 'ACTIVE', owner: 'Core Banking', objectType: 'INTERNAL', createdAt: '2025-01-20T09:00:00Z', createdBy: 'admin', updatedAt: '2026-09-01T08:05:00Z', updatedBy: 'n.petrov' },
+  { id: 'is-003', code: 'IS-CORE', name: 'Core Banking System', description: 'Расчетные счета и платежи', status: 'ACTIVE', owner: 'Core Banking', objectType: 'INTERNAL', createdAt: '2024-11-02T09:00:00Z', createdBy: 'admin', updatedAt: '2026-10-01T11:40:00Z', updatedBy: 'n.petrov' },
+  { id: 'is-004', code: 'IS-CRM', name: 'CRM', description: 'Работа с клиентами в отделениях', status: 'PLANNED', owner: 'Sales', objectType: 'INTERNAL', createdAt: '2026-06-05T09:00:00Z', createdBy: 'm.smirnova', updatedAt: '2026-09-28T12:00:00Z', updatedBy: 'm.smirnova' },
+  { id: 'is-005', code: 'IS-LEGACY-CC', name: 'Legacy Card Processing', description: 'Выведено из эксплуатации, историческая фиксация', status: 'RETIRED', owner: 'Payments', objectType: 'INTERNAL', createdAt: '2023-04-10T09:00:00Z', createdBy: 'admin', updatedAt: '2026-02-27T16:30:00Z', updatedBy: 'a.kuznetsov' },
 ]
 
 export const environments: Environment[] = [

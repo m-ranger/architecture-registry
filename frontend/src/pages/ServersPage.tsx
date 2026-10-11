@@ -3,11 +3,19 @@ import { Button, Card, Descriptions, Drawer, Form, Input, Popconfirm, Select, Sp
 import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
+import {
+  DEFAULT_OBJECT_TYPE_FILTER,
+  OBJECT_TYPE_OPTIONS,
+  ObjectTypeFilterSelect,
+  ObjectTypeTag,
+  matchesObjectType,
+} from '../components/ObjectTypeTag'
+import type { ObjectTypeFilter } from '../components/ObjectTypeTag'
 import { serversApi, deploymentsApi, interfacesApi } from '../api'
 import type { ServerInput } from '../api'
 import { useApi } from '../api/useApi'
 import type { ApiError } from '../api/client'
-import type { Server } from '../types'
+import type { ObjectType, Server } from '../types'
 
 export default function ServersPage() {
   const { message } = App.useApp()
@@ -15,6 +23,7 @@ export default function ServersPage() {
   const { data: deployments } = useApi(deploymentsApi.getAll)
   const { data: interfaces } = useApi(interfacesApi.getAll)
   const [q, setQ] = useState('')
+  const [typeFilter, setTypeFilter] = useState<ObjectTypeFilter>(DEFAULT_OBJECT_TYPE_FILTER)
   const [active, setActive] = useState<Server | null>(null)
   const [formDrawerOpen, setFormDrawerOpen] = useState(false)
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
@@ -52,7 +61,8 @@ export default function ServersPage() {
   const handleCreate = () => {
     setFormMode('create')
     form.resetFields()
-    form.setFieldsValue({ status: 'PLANNED' })
+    // Тип по умолчанию — внутренний (ADR-027)
+    form.setFieldsValue({ status: 'PLANNED', objectType: 'INTERNAL' })
     setEditingRecord(null)
     setFormDrawerOpen(true)
   }
@@ -66,6 +76,7 @@ export default function ServersPage() {
       serverType: record.serverType,
       status: record.status,
       description: record.description,
+      objectType: record.objectType ?? 'INTERNAL',
     })
     setFormDrawerOpen(true)
   }
@@ -92,13 +103,18 @@ export default function ServersPage() {
   const filtered = useMemo(() => {
     if (!servers) return []
     const t = q.trim().toLowerCase()
-    if (!t) return servers
-    return servers.filter((x) => `${x.name} ${x.serverType ?? ''} ${x.description ?? ''}`.toLowerCase().includes(t))
-  }, [q, servers])
+    // Фильтр «Типы» (по умолчанию — только внутренние) + поиск по атрибутам
+    return servers.filter((x) => {
+      if (!matchesObjectType(x.objectType, typeFilter)) return false
+      if (!t) return true
+      return `${x.name} ${x.serverType ?? ''} ${x.description ?? ''}`.toLowerCase().includes(t)
+    })
+  }, [q, typeFilter, servers])
 
   const columns: ColumnsType<Server> = [
     { title: 'Имя', dataIndex: 'name', key: 'name', width: 220, render: (v: string) => <Tag color='green'>{v}</Tag> },
-    { title: 'Тип', dataIndex: 'serverType', key: 'type', width: 120, render: (v?: string) => v ?? '—' },
+    { title: 'Тип', dataIndex: 'objectType', key: 'objectType', width: 130, render: (v?: ObjectType) => <ObjectTypeTag value={v} /> },
+    { title: 'Тип сервера', dataIndex: 'serverType', key: 'serverType', width: 130, render: (v?: string) => v ?? '—' },
     { title: 'Размещений', key: 'dep', width: 120, render: (_: unknown, r: Server) => deployments?.filter((d) => d.serverId === r.id).length ?? 0 },
     { title: 'Интерфейсов', key: 'nic', width: 120, render: (_: unknown, r: Server) => interfaces?.filter((n) => n.serverId === r.id).length ?? 0 },
     { title: 'Описание', dataIndex: 'description', key: 'description' },
@@ -127,6 +143,7 @@ export default function ServersPage() {
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Имя сервера' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
+          <ObjectTypeFilterSelect value={typeFilter} onChange={setTypeFilter} />
           <Button type='primary' icon={<PlusOutlined />} onClick={handleCreate}>Добавить сервер</Button>
         </Space>
       </div>
@@ -154,7 +171,10 @@ export default function ServersPage() {
           <Space direction='vertical' size={16} style={{ width: '100%' }}>
             <Descriptions size='small' bordered column={1}>
               <Descriptions.Item label='Имя'>{active.name}</Descriptions.Item>
-              <Descriptions.Item label='Тип'>{active.serverType ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label='Тип'>
+                <ObjectTypeTag value={active.objectType} source='размещения и сетевые адреса сервера наследуют его' />
+              </Descriptions.Item>
+              <Descriptions.Item label='Тип сервера'>{active.serverType ?? '—'}</Descriptions.Item>
               <Descriptions.Item label='Статус'><StatusTag value={active.status} /></Descriptions.Item>
               <Descriptions.Item label='Описание'>{active.description ?? '—'}</Descriptions.Item>
             </Descriptions>
@@ -212,8 +232,16 @@ export default function ServersPage() {
           <Form.Item label='Имя' name='name' rules={[{ required: true, message: 'Укажите имя сервера' }]}>
             <Input placeholder='srv-app-01' />
           </Form.Item>
-          <Form.Item label='Тип' name='serverType'>
+          <Form.Item label='Тип сервера' name='serverType'>
             <Input placeholder='VM / BAREMETAL' />
+          </Form.Item>
+          <Form.Item
+            label='Тип'
+            name='objectType'
+            rules={[{ required: true, message: 'Выберите тип объекта' }]}
+            tooltip='INTERNAL — собственный сервер; EXTERNAL — внешний (размещения и сетевые адреса сервера наследуют тип)'
+          >
+            <Select options={OBJECT_TYPE_OPTIONS} />
           </Form.Item>
           <Form.Item label='Статус' name='status' rules={[{ required: true, message: 'Выберите статус' }]}>
             <Select options={STATUS_OPTIONS.filter((o) => ['PLANNED', 'ACTIVE', 'RETIRED'].includes(o.value))} />

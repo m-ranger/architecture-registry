@@ -12,6 +12,7 @@ volume (`pg_data`).
 | `04_audit_triggers.sql` | триггеры аудита `audit_log` (идемпотентны) |
 | `05_network_addresses.sql` | миграция модели сетевых адресов развертывания: адрес кластера в `network_interface`, удаление устаревшей таблицы (идемпотентна) |
 | `06_seed_addresses.sql` | демонстрационные сетевые адреса серверов и кластеров (идемпотентен) |
+| `07_object_types.sql` | тип объекта `INTERNAL`/`EXTERNAL`: авторитетные таблицы (`information_system`, `server`, `cluster`) и наследование типа потомками (идемпотентна) |
 
 ## Модель сетевых адресов развертывания
 
@@ -46,6 +47,40 @@ volume (`pg_data`).
 * `v16_flow_addresses` — информационные потоки с адресами: «с какого адреса на
   какой адрес» выполняется поток в каждой среде.
 
+## Тип объекта: INTERNAL / EXTERNAL
+
+Реестр разделяет объекты на внутренние (`INTERNAL` — собственный контур
+организации) и внешние (`EXTERNAL` — подрядчик, партнёр, внешний сервис, внешняя
+площадка). Тип задаётся пользователем у трёх объектов:
+
+| Объект | Колонка | Как задаётся |
+|--------|---------|--------------|
+| `information_system` | `object_type` | выбирается в форме ИС (по умолчанию `INTERNAL`) |
+| `server` | `object_type` | выбирается в форме сервера (по умолчанию `INTERNAL`) |
+| `cluster` | `object_type` | выбирается в форме кластера (по умолчанию `INTERNAL`) |
+
+Остальные объекты **наследуют** признак от родителя — значение хранится в колонке
+`object_type` и пересчитывается триггерами (`07_object_types.sql`), поэтому
+«ручное» значение в запросе перекрывается типом родителя:
+
+| Объект | Родитель |
+|--------|----------|
+| `application_module` | информационная система модуля |
+| `module_deployment` | цель размещения: сервер **или** кластер (`server_id XOR cluster_id`) |
+| `network_interface` | владелец адреса: сервер или кластер; у адреса маршрутизатора и МЭ владельца с типом нет — устройство считается внутренним (`INTERNAL`) |
+
+Правила:
+
+* триггер `trg_object_type_inherit_*` (`BEFORE INSERT OR UPDATE`) — при создании и
+  изменении дочерней строки ставит тип родителя;
+* триггер `trg_object_type_propagate_*` (`AFTER UPDATE OF object_type`) — при смене
+  типа ИС, сервера или кластера немедленно пересчитывает тип модулей, размещений и
+  сетевых адресов;
+* словарь значения ограничен CHECK-ограничением `chk_<таблица>_object_type`;
+* списки реестра (ИС, модули, размещения, серверы, кластеры, сетевые адреса)
+  фильтруются по типу («Все», «Только внутренние», «Только внешние»; по умолчанию —
+  «Только внутренние»).
+
 ## Миграция существующей базы
 
 Если база уже создана (volume `pg_data` существует и скрипты `initdb` отработали
@@ -67,6 +102,10 @@ docker exec arch-registry-db psql -U registry_admin -d architecture_registry -v 
 # демонстрационные адреса развертывания — по желанию
 docker cp sql/06_seed_addresses.sql arch-registry-db:/tmp/06.sql
 docker exec arch-registry-db psql -U registry_admin -d architecture_registry -v ON_ERROR_STOP=1 -f /tmp/06.sql
+
+# тип объекта INTERNAL/EXTERNAL
+docker cp sql/07_object_types.sql arch-registry-db:/tmp/07.sql
+docker exec arch-registry-db psql -U registry_admin -d architecture_registry -v ON_ERROR_STOP=1 -f /tmp/07.sql
 ```
 
 Файл `03_seed_example.sql` очищает таблицы перед загрузкой (в т. ч.
@@ -90,3 +129,21 @@ docker exec arch-registry-db psql -U registry_admin -d architecture_registry -v 
 (размещение на сервере `ipkom3-p-app-04`) и `10.10.10.100:443 → 10.10.10.31:8443`
 (размещение в кластере `ipkom3k8-prod` — предпочтение отдано адресу точки входа
 `INGRESS`, а не узлу `NODE`).
+
+## Проверка типа объекта
+
+`verify_object_types.sql` — самопроверка наследования типа: внутри транзакции
+создаётся временный внешний контур (ИС `TMP-VERIFY-EXT`, сервер, кластер), затем
+модуль, размещение и сетевые адреса — **без указания типа**; проверяется, что они
+получили `EXTERNAL`, а после смены типа родителя на `INTERNAL` тип потомков
+пересчитался. Скрипт завершается `ROLLBACK`, данные реестра не меняются.
+
+```bash
+docker cp sql/verify_object_types.sql arch-registry-db:/tmp/verify_types.sql
+docker exec arch-registry-db psql -U registry_admin -d architecture_registry -v ON_ERROR_STOP=1 -f /tmp/verify_types.sql
+```
+
+Ожидаемый результат: в блоке «Наследование» все четыре строки (`модуль (от ИС)`,
+`размещение (от сервера)`, `адрес (от сервера)`, `адрес (от кластера)`) имеют тип
+`EXTERNAL`; после `UPDATE server SET object_type = 'INTERNAL'` размещение и адрес
+показывают `INTERNAL`; модуль следует за своей ИС.

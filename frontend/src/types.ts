@@ -1,5 +1,13 @@
 // Типы данных — соответствуют физической модели Architecture Registry v2.0 (01_ddl.sql)
 
+/**
+ * Тип объекта реестра (ADR-027): INTERNAL — внутренний (собственный контур
+ * организации), EXTERNAL — внешний (подрядчик, партнёр, внешний сервис).
+ * Задаётся у ИС, сервера и кластера; модуль, размещение и сетевой адрес
+ * наследуют тип родителя (правила — sql/07_object_types.sql).
+ */
+export type ObjectType = 'INTERNAL' | 'EXTERNAL'
+
 export interface InformationSystem {
   id: string
   code: string
@@ -7,6 +15,8 @@ export interface InformationSystem {
   description?: string
   status: 'PLANNED' | 'ACTIVE' | 'RETIRED'
   owner?: string
+  /** Тип объекта: INTERNAL / EXTERNAL (ADR-027) */
+  objectType: ObjectType
   createdAt: string
   createdBy: string
   updatedAt: string
@@ -22,6 +32,8 @@ export interface ApplicationModule {
   moduleType?: string
   version?: string
   status: 'PLANNED' | 'ACTIVE' | 'RETIRED'
+  /** Тип объекта — унаследован от информационной системы (ADR-027) */
+  objectType?: ObjectType
 }
 
 export interface Environment {
@@ -65,6 +77,8 @@ export interface Server {
   id: string
   name: string
   serverType?: string
+  /** Тип объекта: INTERNAL / EXTERNAL (ADR-027) */
+  objectType?: ObjectType
   status: 'PLANNED' | 'ACTIVE' | 'RETIRED'
   description?: string
 }
@@ -75,6 +89,8 @@ export interface Cluster {
   clusterType: string
   version?: string
   managementAddress?: string
+  /** Тип объекта: INTERNAL / EXTERNAL (ADR-027) */
+  objectType?: ObjectType
   status: 'PLANNED' | 'ACTIVE' | 'RETIRED'
   description?: string
 }
@@ -86,6 +102,8 @@ export interface ModuleDeployment {
   clusterId?: string
   deploymentRole?: string
   deploymentState: 'ACTIVE' | 'STANDBY' | 'RETIRED'
+  /** Тип объекта — унаследован от цели размещения: сервера или кластера (ADR-027) */
+  objectType?: ObjectType
   validFrom?: string
   validTo?: string
 }
@@ -131,6 +149,8 @@ export interface NetworkInterface {
   interfaceRole?: string
   /** Среда адреса: NULL — адрес действует во всех средах узла размещения */
   environmentId?: string | null
+  /** Тип объекта — унаследован от владельца адреса (сервера или кластера), ADR-027 */
+  objectType?: ObjectType
   status: 'PLANNED' | 'ACTIVE' | 'RETIRED'
 }
 

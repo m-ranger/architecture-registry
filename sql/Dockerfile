@@ -1,9 +1,10 @@
 # Образ PostgreSQL с предзагруженной схемой "Единого реестра архитектуры ИС" v2.0.
 # Скрипты из docker-entrypoint-initdb.d выполняются один раз при первом старте
 # на пустом volume, строго по алфавиту:
-#   01_ddl.sql -> 02_views.sql -> 03_seed_example.sql -> 04_audit_triggers.sql.
-# 04_audit_triggers.sql подключается последним: триггеры аудита не должны
-# фиксировать загрузку демонстрационных данных.
+#   01_ddl.sql -> 02_views.sql -> 03_seed_example.sql -> 04_audit_triggers.sql
+#   -> 05_network_addresses.sql -> 06_seed_addresses.sql -> 07_object_types.sql.
+# 04_audit_triggers.sql подключается после 03_seed_example.sql: триггеры аудита
+# не должны фиксировать загрузку демонстрационных данных.
 FROM postgres:16-alpine
 
 LABEL maintainer="architecture-registry" \
@@ -19,4 +20,8 @@ COPY 04_audit_triggers.sql /docker-entrypoint-initdb.d/04_audit_triggers.sql
 # те же объекты создаёт 01_ddl.sql. 06 — демонстрационные адреса развертывания.
 COPY 05_network_addresses.sql /docker-entrypoint-initdb.d/05_network_addresses.sql
 COPY 06_seed_addresses.sql    /docker-entrypoint-initdb.d/06_seed_addresses.sql
+# 07 — тип объекта INTERNAL/EXTERNAL: колонка создаётся базовой моделью
+# (01_ddl.sql), здесь определяются правила наследования типа
+# (модуль — от ИС, размещение — от сервера/кластера, адрес — от владельца).
+COPY 07_object_types.sql      /docker-entrypoint-initdb.d/07_object_types.sql
 

@@ -4,11 +4,18 @@ import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
+import {
+  DEFAULT_OBJECT_TYPE_FILTER,
+  ObjectTypeFilterSelect,
+  ObjectTypeTag,
+  matchesObjectType,
+} from '../components/ObjectTypeTag'
+import type { ObjectTypeFilter } from '../components/ObjectTypeTag'
 import { deploymentsApi, instancesApi, modulesApi, environmentsApi, serversApi, clustersApi } from '../api'
 import type { ModuleDeploymentInput } from '../api'
 import { useApi } from '../api/useApi'
 import type { ApiError } from '../api/client'
-import type { ModuleDeployment } from '../types'
+import type { ModuleDeployment, ObjectType } from '../types'
 import { fmtDateShort } from '../utils/format'
 
 /** Значения формы размещения: цель задаётся единым полем server:<id> | cluster:<id> (XOR) */
@@ -27,6 +34,7 @@ export default function DeploymentsPage() {
   const { data: servers } = useApi(serversApi.getAll)
   const { data: clusters } = useApi(clustersApi.getAll)
   const [q, setQ] = useState('')
+  const [typeFilter, setTypeFilter] = useState<ObjectTypeFilter>(DEFAULT_OBJECT_TYPE_FILTER)
   const [active, setActive] = useState<ModuleDeployment | null>(null)
   const [formDrawerOpen, setFormDrawerOpen] = useState(false)
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
@@ -119,14 +127,16 @@ export default function DeploymentsPage() {
   const filtered = useMemo(() => {
     if (!deployments) return []
     const t = q.trim().toLowerCase()
-    if (!t) return deployments
     return deployments.filter((d) => {
+      // Тип объекта унаследован от цели размещения (ADR-027)
+      if (!matchesObjectType(d.objectType, typeFilter)) return false
+      if (!t) return true
       const inst = instances?.find((i) => i.id === d.moduleInstanceId)
       const mod = inst ? modules?.find((m) => m.id === inst.moduleId) : undefined
       const env = inst ? environments?.find((e) => e.id === inst.environmentId) : undefined
       return `${inst?.name ?? ''} ${mod?.code ?? ''} ${env?.code ?? ''} ${targetOf(d)} ${d.deploymentRole ?? ''}`.toLowerCase().includes(t)
     })
-  }, [q, deployments, instances, modules, environments, servers, clusters])
+  }, [q, typeFilter, deployments, instances, modules, environments, servers, clusters])
 
   const columns: ColumnsType<ModuleDeployment> = [
     { title: 'Экземпляр', key: 'inst', width: 220, render: (_: unknown, r: ModuleDeployment) => <Typography.Text strong>{instanceOf(r)?.name ?? '—'}</Typography.Text> },
@@ -146,6 +156,7 @@ export default function DeploymentsPage() {
       },
     },
     { title: 'Цель размещения', key: 'target', width: 220, render: (_: unknown, r: ModuleDeployment) => <Tag color={r.serverId ? 'green' : r.clusterId ? 'purple' : 'default'}>{targetOf(r)}</Tag> },
+    { title: 'Тип', dataIndex: 'objectType', key: 'objectType', width: 130, render: (v?: ObjectType) => <ObjectTypeTag value={v} source='унаследован от цели размещения' /> },
     { title: 'Роль', dataIndex: 'deploymentRole', key: 'role', width: 120, render: (v?: string) => v ?? '—' },
     { title: 'Статус размещения', dataIndex: 'deploymentState', key: 'state', width: 150, render: (v: string) => <StatusTag value={v} /> },
     { title: 'Действует с', dataIndex: 'validFrom', key: 'from', width: 120, render: (v?: string) => fmtDateShort(v) },
@@ -171,6 +182,7 @@ export default function DeploymentsPage() {
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Экземпляр, модуль, среда' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
+          <ObjectTypeFilterSelect value={typeFilter} onChange={setTypeFilter} />
           <Button type='primary' icon={<PlusOutlined />} onClick={handleCreate}>Добавить размещение</Button>
         </Space>
       </div>
@@ -201,6 +213,9 @@ export default function DeploymentsPage() {
                 {(() => { const inst = instanceOf(active); return inst ? environments?.find((e) => e.id === inst.environmentId)?.code ?? '—' : '—' })()}
               </Descriptions.Item>
               <Descriptions.Item label='Цель размещения'><Tag color={active.serverId ? 'green' : active.clusterId ? 'purple' : 'default'}>{targetOf(active)}</Tag></Descriptions.Item>
+              <Descriptions.Item label='Тип'>
+                <ObjectTypeTag value={active.objectType} source='унаследован от цели размещения (сервера или кластера)' />
+              </Descriptions.Item>
               <Descriptions.Item label='Роль'>{active.deploymentRole ?? '—'}</Descriptions.Item>
               <Descriptions.Item label='Статус размещения'><StatusTag value={active.deploymentState} /></Descriptions.Item>
               <Descriptions.Item label='Действует с'>{fmtDateShort(active.validFrom)}</Descriptions.Item>

@@ -3,11 +3,18 @@ import { Alert, App, Button, Card, Descriptions, Drawer, Form, Input, Popconfirm
 import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
+import {
+  DEFAULT_OBJECT_TYPE_FILTER,
+  ObjectTypeFilterSelect,
+  ObjectTypeTag,
+  matchesObjectType,
+} from '../components/ObjectTypeTag'
+import type { ObjectTypeFilter } from '../components/ObjectTypeTag'
 import { clustersApi, environmentsApi, interfacesApi, serversApi, routersApi, firewallsApi, segmentsApi, zonesApi } from '../api'
 import type { NetworkInterfaceInput } from '../api'
 import { useApi } from '../api/useApi'
 import type { ApiError } from '../api/client'
-import type { NetworkInterface } from '../types'
+import type { NetworkInterface, ObjectType } from '../types'
 
 /**
  * Значения формы интерфейса: владелец задаётся единым полем
@@ -37,6 +44,7 @@ export default function InterfacesPage() {
   // Среда адреса: адрес сервиса относится к среде, адрес управления — ко всем
   const { data: environments } = useApi(environmentsApi.getAll)
   const [q, setQ] = useState('')
+  const [typeFilter, setTypeFilter] = useState<ObjectTypeFilter>(DEFAULT_OBJECT_TYPE_FILTER)
   const [active, setActive] = useState<NetworkInterface | null>(null)
   const [formDrawerOpen, setFormDrawerOpen] = useState(false)
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
@@ -157,14 +165,16 @@ export default function InterfacesPage() {
   const filtered = useMemo(() => {
     if (!interfaces) return []
     const t = q.trim().toLowerCase()
-    if (!t) return interfaces
     return interfaces.filter((x) => {
+      // Тип объекта унаследован от владельца адреса (ADR-027)
+      if (!matchesObjectType(x.objectType, typeFilter)) return false
+      if (!t) return true
       const o = ownerOf(x)
       const seg = segments?.find((s) => s.id === x.networkSegmentId)
       return `${x.name} ${x.ipAddress ?? ''} ${x.macAddress ?? ''} ${x.interfaceRole ?? ''} ${o.kind} ${o.name} ${seg?.code ?? ''} ${envCode(x.environmentId) ?? 'все среды'}`.toLowerCase().includes(t)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, interfaces, segments, servers, clusters, routers, firewalls])
+  }, [q, typeFilter, interfaces, segments, servers, clusters, routers, firewalls])
 
   const columns: ColumnsType<NetworkInterface> = [
     { title: 'Имя', dataIndex: 'name', key: 'name', width: 160 },
@@ -175,6 +185,15 @@ export default function InterfacesPage() {
         const color = o.kind === 'Сервер' ? 'green' : o.kind === 'Кластер' ? 'geekblue' : o.kind === 'Маршрутизатор' ? 'purple' : 'orange'
         return <Tag color={color}>{o.kind}: {o.name}</Tag>
       },
+    },
+    {
+      title: 'Тип', dataIndex: 'objectType', key: 'objectType', width: 130,
+      render: (v: ObjectType | undefined, r: NetworkInterface) => (
+        <ObjectTypeTag
+          value={v}
+          source={r.serverId || r.clusterId ? 'унаследован от владельца адреса' : 'устройства контура (маршрутизатор, МЭ) считаются внутренними'}
+        />
+      ),
     },
     {
       title: 'Среда', key: 'env', width: 120,
@@ -214,6 +233,7 @@ export default function InterfacesPage() {
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Имя, IP или MAC' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
+          <ObjectTypeFilterSelect value={typeFilter} onChange={setTypeFilter} />
           <Button type='primary' icon={<PlusOutlined />} onClick={handleCreate}>Добавить интерфейс</Button>
         </Space>
       </div>
@@ -241,6 +261,12 @@ export default function InterfacesPage() {
               <Descriptions.Item label='Сегмент'>{segments?.find((s) => s.id === active.networkSegmentId)?.code ?? '—'}</Descriptions.Item>
               <Descriptions.Item label='Зона'>{zoneOf(active.networkSegmentId)}</Descriptions.Item>
               <Descriptions.Item label='Среда адреса'>{envCode(active.environmentId) ?? 'все среды'}</Descriptions.Item>
+              <Descriptions.Item label='Тип'>
+                <ObjectTypeTag
+                  value={active.objectType}
+                  source={active.serverId || active.clusterId ? 'унаследован от владельца адреса' : 'устройства контура (маршрутизатор, МЭ) считаются внутренними'}
+                />
+              </Descriptions.Item>
               <Descriptions.Item label='IP-адрес'>{active.ipAddress ?? '—'}</Descriptions.Item>
               <Descriptions.Item label='MAC-адрес'>{active.macAddress ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={isClusterOwned(active) ? 'Роль в кластере' : 'Роль адреса'}>

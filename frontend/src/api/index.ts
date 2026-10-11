@@ -21,6 +21,7 @@ import type {
   DiagramType,
   NetworkInteractionReport,
   FlowMatrixReport,
+  ObjectType,
 } from '../types'
 
 // Entity API modules — GET /api/{endpoint} for list operations
@@ -31,6 +32,8 @@ export interface InformationSystemInput {
   status: InformationSystem['status']
   owner?: string
   description?: string
+  /** Тип объекта: INTERNAL (по умолчанию) или EXTERNAL (ADR-027) */
+  objectType?: ObjectType
 }
 
 /** Тело запроса на создание модуля */
@@ -99,6 +102,8 @@ export interface ServerInput {
   serverType?: string
   status: Server['status']
   description?: string
+  /** Тип объекта: INTERNAL (по умолчанию) или EXTERNAL (ADR-027) */
+  objectType?: ObjectType
 }
 
 export const serversApi = {
@@ -116,6 +121,8 @@ export interface ClusterInput {
   managementAddress?: string
   status: Cluster['status']
   description?: string
+  /** Тип объекта: INTERNAL (по умолчанию) или EXTERNAL (ADR-027) */
+  objectType?: ObjectType
 }
 
 export const clustersApi = {

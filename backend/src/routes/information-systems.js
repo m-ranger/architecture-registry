@@ -1,6 +1,7 @@
 import express from 'express';
 import { getAll, getById, create, update, deleteById } from '../utils/crud.js';
 import { currentUser } from '../utils/requestContext.js';
+import { normalizeObjectType } from '../utils/objectType.js';
 
 const router = express.Router();
 const table = 'information_system';
@@ -28,11 +29,11 @@ router.get('/:id', async (req, res, next) => {
 // POST /api/information-systems — создать ИС
 router.post('/', async (req, res, next) => {
   try {
-    const { code, name, description, status, owner } = req.body;
+    const { code, name, description, status, owner, object_type } = req.body;
     const item = await create(
       table,
-      ['code', 'name', 'description', 'status', 'owner', 'created_by', 'updated_by'],
-      [code, name, description || null, status, owner || null, currentUser(), currentUser()]
+      ['code', 'name', 'description', 'status', 'owner', 'object_type', 'created_by', 'updated_by'],
+      [code, name, description || null, status, owner || null, normalizeObjectType(object_type), currentUser(), currentUser()]
     );
     res.status(201).json(item);
   } catch (err) {
@@ -41,15 +42,22 @@ router.post('/', async (req, res, next) => {
 });
 
 // PUT /api/information-systems/:id — обновить ИС
+// Смена типа объекта пересчитывает тип модулей этой ИС (триггеры 07_object_types.sql).
 router.put('/:id', async (req, res, next) => {
   try {
-    const { code, name, description, status, owner } = req.body;
-    const item = await update(
-      table,
-      req.params.id,
-      ['code', 'name', 'description', 'status', 'owner', 'updated_by'],
-      [code, name, description || null, status, owner || null, currentUser()]
-    );
+    const { code, name, description, status, owner, object_type } = req.body;
+    const columns = ['code', 'name', 'description', 'status', 'owner'];
+    const values = [code, name, description || null, status, owner || null];
+    // Тип меняется только явной передачей поля: запрос без object_type
+    // не сбрасывает ранее выбранный EXTERNAL.
+    if (object_type !== undefined && object_type !== null && object_type !== '') {
+      columns.push('object_type');
+      values.push(normalizeObjectType(object_type));
+    }
+    columns.push('updated_by');
+    values.push(currentUser());
+
+    const item = await update(table, req.params.id, columns, values);
     res.json(item);
   } catch (err) {
     next(err);

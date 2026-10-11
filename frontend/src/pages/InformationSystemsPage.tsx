@@ -3,11 +3,19 @@ import { Button, Card, Descriptions, Drawer, Form, Input, Popconfirm, Select, Sp
 import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
+import {
+  DEFAULT_OBJECT_TYPE_FILTER,
+  OBJECT_TYPE_OPTIONS,
+  ObjectTypeFilterSelect,
+  ObjectTypeTag,
+  matchesObjectType,
+} from '../components/ObjectTypeTag'
+import type { ObjectTypeFilter } from '../components/ObjectTypeTag'
 import { informationSystemsApi, modulesApi } from '../api'
 import type { InformationSystemInput } from '../api'
 import { useApi } from '../api/useApi'
 import type { ApiError } from '../api/client'
-import type { InformationSystem } from '../types'
+import type { InformationSystem, ObjectType } from '../types'
 import { fmtDate } from '../utils/format'
 
 export default function InformationSystemsPage() {
@@ -15,6 +23,7 @@ export default function InformationSystemsPage() {
   const { data: informationSystems, loading: isLoading, error: isError, refetch } = useApi(informationSystemsApi.getAll)
   const { data: modules } = useApi(modulesApi.getAll)
   const [q, setQ] = useState('')
+  const [typeFilter, setTypeFilter] = useState<ObjectTypeFilter>(DEFAULT_OBJECT_TYPE_FILTER)
   const [active, setActive] = useState<InformationSystem | null>(null)
   const [formDrawerOpen, setFormDrawerOpen] = useState(false)
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
@@ -52,7 +61,8 @@ export default function InformationSystemsPage() {
   const handleCreate = () => {
     setFormMode('create')
     form.resetFields()
-    form.setFieldsValue({ status: 'PLANNED' })
+    // Тип по умолчанию — внутренний (ADR-027); внешний объект помечается явно.
+    form.setFieldsValue({ status: 'PLANNED', objectType: 'INTERNAL' })
     setEditingRecord(null)
     setFormDrawerOpen(true)
   }
@@ -67,6 +77,7 @@ export default function InformationSystemsPage() {
       status: record.status,
       owner: record.owner,
       description: record.description,
+      objectType: record.objectType ?? 'INTERNAL',
     })
     setFormDrawerOpen(true)
   }
@@ -93,13 +104,18 @@ export default function InformationSystemsPage() {
   const filtered = useMemo(() => {
     if (!informationSystems) return []
     const t = q.trim().toLowerCase()
-    if (!t) return informationSystems
-    return informationSystems.filter((x) => `${x.code} ${x.name} ${x.description ?? ''} ${x.owner ?? ''}`.toLowerCase().includes(t))
-  }, [q, informationSystems])
+    // Фильтр «Типы» (по умолчанию — только внутренние) + поиск по атрибутам
+    return informationSystems.filter((x) => {
+      if (!matchesObjectType(x.objectType, typeFilter)) return false
+      if (!t) return true
+      return `${x.code} ${x.name} ${x.description ?? ''} ${x.owner ?? ''}`.toLowerCase().includes(t)
+    })
+  }, [q, typeFilter, informationSystems])
 
   const columns: ColumnsType<InformationSystem> = [
     { title: 'Код', dataIndex: 'code', key: 'code', width: 140, sorter: (a, b) => a.code.localeCompare(b.code), render: (v: string) => <Typography.Text strong>{v}</Typography.Text> },
     { title: 'Наименование', dataIndex: 'name', key: 'name', sorter: (a, b) => a.name.localeCompare(b.name) },
+    { title: 'Тип', dataIndex: 'objectType', key: 'objectType', width: 130, render: (v?: ObjectType) => <ObjectTypeTag value={v} /> },
     { title: 'Владелец', dataIndex: 'owner', key: 'owner', width: 170 },
     { title: 'Модулей', key: 'mods', width: 90, render: (_: unknown, r: InformationSystem) => modules?.filter((m) => m.informationSystemId === r.id).length ?? 0 },
     { title: 'Статус', dataIndex: 'status', key: 'status', width: 120, render: (v: string) => <StatusTag value={v} />, filters: [{ text: 'Активно', value: 'ACTIVE' }, { text: 'План', value: 'PLANNED' }, { text: 'Выведено', value: 'RETIRED' }], onFilter: (val, rec) => rec.status === val },
@@ -119,6 +135,7 @@ export default function InformationSystemsPage() {
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Код, название, владелец' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 280 }} />
+          <ObjectTypeFilterSelect value={typeFilter} onChange={setTypeFilter} />
           <Button type='primary' icon={<PlusOutlined />} onClick={handleCreate}>Добавить ИС</Button>
         </Space>
       </div>
@@ -147,6 +164,12 @@ export default function InformationSystemsPage() {
             <Descriptions size='small' bordered column={1}>
               <Descriptions.Item label='Код'>{active.code}</Descriptions.Item>
               <Descriptions.Item label='Наименование'>{active.name}</Descriptions.Item>
+              <Descriptions.Item label='Тип'>
+                <ObjectTypeTag value={active.objectType} />
+                <Typography.Text type='secondary' style={{ marginLeft: 6, fontSize: 12 }}>
+                  {active.objectType === 'EXTERNAL' ? 'внешняя система: модули наследуют тип' : 'INTERNAL'}
+                </Typography.Text>
+              </Descriptions.Item>
               <Descriptions.Item label='Статус'><StatusTag value={active.status} /></Descriptions.Item>
               <Descriptions.Item label='Владелец'>{active.owner ?? '—'}</Descriptions.Item>
               <Descriptions.Item label='Описание'>{active.description ?? '—'}</Descriptions.Item>
@@ -208,6 +231,14 @@ export default function InformationSystemsPage() {
           </Form.Item>
           <Form.Item label='Наименование' name='name' rules={[{ required: true, message: 'Укажите наименование' }]}>
             <Input placeholder='Наименование информационной системы' />
+          </Form.Item>
+          <Form.Item
+            label='Тип'
+            name='objectType'
+            rules={[{ required: true, message: 'Выберите тип объекта' }]}
+            tooltip='INTERNAL — собственная система организации; EXTERNAL — внешняя (модули системы наследуют тип)'
+          >
+            <Select options={OBJECT_TYPE_OPTIONS} />
           </Form.Item>
           <Form.Item label='Статус' name='status' rules={[{ required: true, message: 'Выберите статус' }]}>
             <Select options={STATUS_OPTIONS.filter((o) => ['PLANNED', 'ACTIVE', 'RETIRED'].includes(o.value))} />

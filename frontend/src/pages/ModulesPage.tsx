@@ -3,11 +3,18 @@ import { Alert, Button, Card, Drawer, Form, Input, Popconfirm, Select, Space, Ta
 import { SearchOutlined, PlusOutlined, ExportOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
+import {
+  DEFAULT_OBJECT_TYPE_FILTER,
+  ObjectTypeFilterSelect,
+  ObjectTypeTag,
+  matchesObjectType,
+} from '../components/ObjectTypeTag'
+import type { ObjectTypeFilter } from '../components/ObjectTypeTag'
 import { modulesApi, instancesApi, flowsApi, informationSystemsApi, environmentsApi, protocolsApi } from '../api'
 import type { ApplicationModuleInput } from '../api'
 import { useApi } from '../api/useApi'
 import type { ApiError } from '../api/client'
-import type { ApplicationModule } from '../types'
+import type { ApplicationModule, ObjectType } from '../types'
 
 export default function ModulesPage() {
   const { message } = App.useApp()
@@ -20,6 +27,7 @@ export default function ModulesPage() {
 
   const [q, setQ] = useState('')
   const [type, setType] = useState<string | undefined>(undefined)
+  const [typeFilter, setTypeFilter] = useState<ObjectTypeFilter>(DEFAULT_OBJECT_TYPE_FILTER)
   const [active, setActive] = useState<ApplicationModule | null>(null)
   const [formDrawerOpen, setFormDrawerOpen] = useState(false)
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
@@ -103,9 +111,11 @@ const handleSave = async () => {
       const isName = informationSystems.find((is) => is.id === m.informationSystemId)?.code ?? ''
       const matchesQ = !t || `${m.code} ${m.name} ${m.purpose} ${isName}`.toLowerCase().includes(t)
       const matchesType = !type || m.moduleType === type
-      return matchesQ && matchesType
+      // Тип объекта унаследован от ИС (ADR-027): фильтр «Типы» + поиск по типу модуля
+      const matchesObject = matchesObjectType(m.objectType, typeFilter)
+      return matchesQ && matchesType && matchesObject
     })
-  }, [q, type, modules, informationSystems])
+  }, [q, type, typeFilter, modules, informationSystems])
 
   const typeOptions = ['FRONTEND', 'BACKEND', 'API', 'INTEGRATION', 'DATABASE', 'BATCH', 'ADAPTER']
 
@@ -113,7 +123,8 @@ const handleSave = async () => {
     { title: 'Код', dataIndex: 'code', key: 'code', width: 160, render: (v: string) => <Typography.Text strong>{v}</Typography.Text> },
     { title: 'ИС', key: 'is', width: 150, render: (_: unknown, r: ApplicationModule) => informationSystems?.find((is) => is.id === r.informationSystemId)?.code },
     { title: 'Наименование', dataIndex: 'name', key: 'name', sorter: (a, b) => a.name.localeCompare(b.name) },
-    { title: 'Тип', dataIndex: 'moduleType', key: 'type', width: 130, render: (v?: string) => (v ? <Tag color='geekblue'>{v}</Tag> : '—'), filters: typeOptions.map((x) => ({ text: x, value: x })), onFilter: (v, r) => r.moduleType === v },
+    { title: 'Тип', dataIndex: 'objectType', key: 'objectType', width: 130, render: (v?: ObjectType) => <ObjectTypeTag value={v} source='унаследован от информационной системы модуля' /> },
+    { title: 'Тип модуля', dataIndex: 'moduleType', key: 'moduleType', width: 140, render: (v?: string) => (v ? <Tag color='geekblue'>{v}</Tag> : '—'), filters: typeOptions.map((x) => ({ text: x, value: x })), onFilter: (v, r) => r.moduleType === v },
     { title: 'Версия', dataIndex: 'version', key: 'version', width: 100 },
     { title: 'Потоков ↑/↓', key: 'flows', width: 120, render: (_: unknown, r: ApplicationModule) => <Tag color='purple'>{flows?.filter((f) => f.sourceModuleId === r.id).length ?? 0} / {flows?.filter((f) => f.targetModuleId === r.id).length ?? 0}</Tag> },
     { title: 'Экземпляров', key: 'inst', width: 110, render: (_: unknown, r: ApplicationModule) => instances?.filter((i) => i.moduleId === r.id).length ?? 0 },
@@ -137,6 +148,7 @@ const handleSave = async () => {
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Код, название, ИС' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
+          <ObjectTypeFilterSelect value={typeFilter} onChange={setTypeFilter} />
           <Button onClick={() => setType(type ? undefined : typeOptions[0])} icon={<ExportOutlined />}>{type ?? 'Все типы'}</Button>
           <Button type='primary' icon={<PlusOutlined />} onClick={handleCreate}>Добавить модуль</Button>
         </Space>
@@ -164,6 +176,10 @@ const handleSave = async () => {
         {active && (
           <Space direction='vertical' size={16} style={{ width: '100%' }}>
             <Typography.Paragraph type='secondary' style={{ marginBottom: 0 }}>{active.purpose}</Typography.Paragraph>
+            <Space size={6}>
+              <Typography.Text type='secondary'>Тип:</Typography.Text>
+              <ObjectTypeTag value={active.objectType} source='унаследован от информационной системы модуля' />
+            </Space>
             <Card size='small' title='Экземпляры по средам (REQ-022)' style={{ borderRadius: 8 }}>
               <Table rowKey='id' size='small' pagination={false} dataSource={moduleInstances} columns={[
                 { title: 'Экземпляр', dataIndex: 'name', key: 'name', render: (v: string) => <Typography.Text copyable>{v}</Typography.Text> },

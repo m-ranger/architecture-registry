@@ -3,11 +3,19 @@ import { Alert, App, Button, Card, Descriptions, Drawer, Form, Input, Popconfirm
 import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { StatusTag, STATUS_OPTIONS } from '../components/StatusTag'
+import {
+  DEFAULT_OBJECT_TYPE_FILTER,
+  OBJECT_TYPE_OPTIONS,
+  ObjectTypeFilterSelect,
+  ObjectTypeTag,
+  matchesObjectType,
+} from '../components/ObjectTypeTag'
+import type { ObjectTypeFilter } from '../components/ObjectTypeTag'
 import { clustersApi, deploymentsApi, instancesApi } from '../api'
 import type { ClusterInput } from '../api'
 import { useApi } from '../api/useApi'
 import type { ApiError } from '../api/client'
-import type { Cluster } from '../types'
+import type { Cluster, ObjectType } from '../types'
 
 export default function ClustersPage() {
   const { message } = App.useApp()
@@ -15,6 +23,7 @@ export default function ClustersPage() {
   const { data: deployments } = useApi(deploymentsApi.getAll)
   const { data: instances } = useApi(instancesApi.getAll)
   const [q, setQ] = useState('')
+  const [typeFilter, setTypeFilter] = useState<ObjectTypeFilter>(DEFAULT_OBJECT_TYPE_FILTER)
   const [active, setActive] = useState<Cluster | null>(null)
   const [formDrawerOpen, setFormDrawerOpen] = useState(false)
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
@@ -51,7 +60,8 @@ export default function ClustersPage() {
   const handleCreate = () => {
     setFormMode('create')
     form.resetFields()
-    form.setFieldsValue({ status: 'PLANNED' })
+    // Тип по умолчанию — внутренний (ADR-027)
+    form.setFieldsValue({ status: 'PLANNED', objectType: 'INTERNAL' })
     setEditingRecord(null)
     setFormDrawerOpen(true)
   }
@@ -67,6 +77,7 @@ export default function ClustersPage() {
       managementAddress: record.managementAddress,
       description: record.description,
       status: record.status,
+      objectType: record.objectType ?? 'INTERNAL',
     })
     setFormDrawerOpen(true)
   }
@@ -93,13 +104,18 @@ export default function ClustersPage() {
   const filtered = useMemo(() => {
     if (!clusters) return []
     const t = q.trim().toLowerCase()
-    if (!t) return clusters
-    return clusters.filter((x) => `${x.name} ${x.clusterType} ${x.version ?? ''} ${x.managementAddress ?? ''}`.toLowerCase().includes(t))
-  }, [q, clusters])
+    // Фильтр «Типы» (по умолчанию — только внутренние) + поиск по атрибутам
+    return clusters.filter((x) => {
+      if (!matchesObjectType(x.objectType, typeFilter)) return false
+      if (!t) return true
+      return `${x.name} ${x.clusterType} ${x.version ?? ''} ${x.managementAddress ?? ''}`.toLowerCase().includes(t)
+    })
+  }, [q, typeFilter, clusters])
 
   const columns: ColumnsType<Cluster> = [
     { title: 'Имя', dataIndex: 'name', key: 'name', width: 220, render: (v: string) => <Tag color='purple'>{v}</Tag> },
-    { title: 'Тип', dataIndex: 'clusterType', key: 'type', width: 140 },
+    { title: 'Тип', dataIndex: 'objectType', key: 'objectType', width: 130, render: (v?: ObjectType) => <ObjectTypeTag value={v} /> },
+    { title: 'Тип кластера', dataIndex: 'clusterType', key: 'clusterType', width: 150 },
     { title: 'Версия', dataIndex: 'version', key: 'version', width: 110, render: (v?: string) => v ?? '—' },
     { title: 'Управление', dataIndex: 'managementAddress', key: 'mgmt', render: (v?: string) => <Typography.Text type='secondary' style={{ fontSize: 12 }}>{v ?? '—'}</Typography.Text> },
     { title: 'Размещений', key: 'dep', width: 120, render: (_: unknown, r: Cluster) => deployments?.filter((d) => d.clusterId === r.id).length ?? 0 },
@@ -127,6 +143,7 @@ export default function ClustersPage() {
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Имя или тип кластера' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
+          <ObjectTypeFilterSelect value={typeFilter} onChange={setTypeFilter} />
           <Button type='primary' icon={<PlusOutlined />} onClick={handleCreate}>Добавить кластер</Button>
         </Space>
       </div>
@@ -150,7 +167,10 @@ export default function ClustersPage() {
           <Space direction='vertical' size={16} style={{ width: '100%' }}>
             <Descriptions size='small' bordered column={1}>
               <Descriptions.Item label='Имя'>{active.name}</Descriptions.Item>
-              <Descriptions.Item label='Тип'>{active.clusterType}</Descriptions.Item>
+              <Descriptions.Item label='Тип кластера'>{active.clusterType}</Descriptions.Item>
+              <Descriptions.Item label='Тип'>
+                <ObjectTypeTag value={active.objectType} source='размещения и сетевые адреса кластера наследуют его' />
+              </Descriptions.Item>
               <Descriptions.Item label='Версия'>{active.version ?? '—'}</Descriptions.Item>
               <Descriptions.Item label='Адрес управления'>{active.managementAddress ?? '—'}</Descriptions.Item>
               <Descriptions.Item label='Статус'><StatusTag value={active.status} /></Descriptions.Item>
@@ -207,6 +227,14 @@ export default function ClustersPage() {
           </Form.Item>
           <Form.Item label='Тип кластера' name='clusterType' rules={[{ required: true, message: 'Укажите тип кластера' }]}>
             <Input placeholder='KUBERNETES / PROXMOX' />
+          </Form.Item>
+          <Form.Item
+            label='Тип'
+            name='objectType'
+            rules={[{ required: true, message: 'Выберите тип объекта' }]}
+            tooltip='INTERNAL — собственный кластер; EXTERNAL — внешний (размещения и сетевые адреса кластера наследуют тип)'
+          >
+            <Select options={OBJECT_TYPE_OPTIONS} />
           </Form.Item>
           <Form.Item label='Версия' name='version'>
             <Input placeholder='1.29' />

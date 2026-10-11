@@ -1,5 +1,6 @@
 import express from 'express';
 import { getAll, getById, create, update, deleteById } from '../utils/crud.js';
+import { normalizeObjectType } from '../utils/objectType.js';
 
 const router = express.Router();
 const table = 'server';
@@ -24,11 +25,11 @@ router.get('/:id', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const { name, server_type, status, description } = req.body;
+    const { name, server_type, status, description, object_type } = req.body;
     const item = await create(
       table,
-      ['name', 'server_type', 'status', 'description'],
-      [name, server_type || null, status, description || null]
+      ['name', 'server_type', 'status', 'description', 'object_type'],
+      [name, server_type || null, status, description || null, normalizeObjectType(object_type)]
     );
     res.status(201).json(item);
   } catch (err) {
@@ -36,15 +37,22 @@ router.post('/', async (req, res, next) => {
   }
 });
 
+// PUT /api/servers/:id — обновить сервер
+// Смена типа объекта пересчитывает тип размещений и сетевых адресов сервера
+// (триггеры 07_object_types.sql).
 router.put('/:id', async (req, res, next) => {
   try {
-    const { name, server_type, status, description } = req.body;
-    const item = await update(
-      table,
-      req.params.id,
-      ['name', 'server_type', 'status', 'description'],
-      [name, server_type || null, status, description || null]
-    );
+    const { name, server_type, status, description, object_type } = req.body;
+    const columns = ['name', 'server_type', 'status', 'description'];
+    const values = [name, server_type || null, status, description || null];
+    // Тип меняется только явной передачей поля: запрос без object_type
+    // не сбрасывает ранее выбранный EXTERNAL.
+    if (object_type !== undefined && object_type !== null && object_type !== '') {
+      columns.push('object_type');
+      values.push(normalizeObjectType(object_type));
+    }
+
+    const item = await update(table, req.params.id, columns, values);
     res.json(item);
   } catch (err) {
     next(err);
