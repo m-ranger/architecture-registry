@@ -342,10 +342,6 @@ export default function DiagramsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Архитектурные схемы</Typography.Title>
-          <Typography.Text type='secondary'>
-            Реестр — источник истины, схема — представление: System Context, Container, Deployment (C4).
-            Список и редактор встроены в приложение
-          </Typography.Text>
         </div>
         <Space wrap>
           <Input

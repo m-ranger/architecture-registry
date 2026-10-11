@@ -122,9 +122,6 @@ export default function FirewallsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Межсетевые экраны</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>firewall</Typography.Text> · Фиксируется как объект инфраструктуры; правила/маршрут потока не привязаны к firewall
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Имя МЭ' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />

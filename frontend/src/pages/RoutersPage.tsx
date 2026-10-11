@@ -122,9 +122,6 @@ export default function RoutersPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Маршрутизаторы</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>router</Typography.Text> · Сетевое оборудование уровня L3; подключается к сегментам через network_interface
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Имя маршрутизатора' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />

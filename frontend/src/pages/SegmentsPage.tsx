@@ -123,9 +123,6 @@ export default function SegmentsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Сетевые сегменты</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>network_segment</Typography.Text> · Сегмент принадлежит одной зоне (REQ-017); CIDR и VLAN необязательны
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Код или CIDR' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />

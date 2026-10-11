@@ -139,9 +139,6 @@ export default function InstancesPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Экземпляры модулей</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>module_instance</Typography.Text> · Экземпляр модуля в заданной среде; ключ (module_id, environment_id, name) уникален (REQ-007)
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Имя, модуль или среда' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />

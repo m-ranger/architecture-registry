@@ -137,9 +137,6 @@ export default function ClustersPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Кластеры</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>cluster</Typography.Text> · Один кластер обслуживает несколько сред (REQ-012)
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Имя или тип кластера' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />

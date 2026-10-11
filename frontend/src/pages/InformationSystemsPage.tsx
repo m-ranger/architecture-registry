@@ -131,7 +131,6 @@ export default function InformationSystemsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Информационные системы</Typography.Title>
-          <Typography.Text type='secondary'>Сущность <Typography.Text code>information_system</Typography.Text> — система верхнего уровня. Код уникален (REQ-002).</Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Код, название, владелец' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 280 }} />

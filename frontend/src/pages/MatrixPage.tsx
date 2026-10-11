@@ -186,16 +186,6 @@ export default function MatrixPage() {
 
   return (
     <Space direction='vertical' size={12} style={{ width: '100%' }}>
-      <div>
-        <Typography.Title level={4} style={{ margin: 0 }}>Матрица информационных потоков</Typography.Title>
-        <Typography.Text type='secondary'>
-          Строится на данных реестра: строка — модуль-источник, столбец — модуль-назначение,
-          ячейка — информационные потоки между модулями (аналог{' '}
-          <Typography.Text code>v05_information_flow_matrix</Typography.Text>). Поток модуля
-          «сам в себя» запрещён, поэтому диагональ матрицы пуста (REQ-020).
-        </Typography.Text>
-      </div>
-
       <Space size={8} wrap>
         <Typography.Text type='secondary'>
           Модулей: {summary?.modules ?? 0} · потоков: {summary?.flows ?? 0} ·

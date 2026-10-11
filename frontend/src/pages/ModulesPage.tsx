@@ -144,7 +144,6 @@ const handleSave = async () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Модули ИС</Typography.Title>
-          <Typography.Text type='secondary'>Сущность <Typography.Text code>application_module</Typography.Text>. Уникальность (ИС, код) — REQ-003.</Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Код, название, ИС' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
@@ -153,7 +152,6 @@ const handleSave = async () => {
           <Button type='primary' icon={<PlusOutlined />} onClick={handleCreate}>Добавить модуль</Button>
         </Space>
       </div>
-      <Alert type='info' showIcon style={{ borderRadius: 10 }} message='Потоки считаются от модуля, не от экземпляров' description='Числа ↑/↓ получены из information_flow по source_module_id / target_module_id (REQ-021).' />
       <Card size='small' style={{ borderRadius: 10 }}>
         <Spin spinning={loading}>
           <Table<ApplicationModule> rowKey='id' columns={columns} dataSource={filtered} pagination={{ pageSize: 8 }} onRow={(rec) => ({ onClick: () => setActive(rec), style: { cursor: 'pointer' } })} />

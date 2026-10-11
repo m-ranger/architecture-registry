@@ -123,9 +123,6 @@ export default function ProtocolsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Протоколы</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>protocol</Typography.Text> · Справочник протоколов для information_flow (REQ-019)
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Код протокола' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />

@@ -140,9 +140,6 @@ export default function ProjectsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Проекты</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>project</Typography.Text> · Объект реестра: Номер проекта и Наименование · информационные потоки задействуются в проектах (1:N)
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Номер или наименование проекта' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />

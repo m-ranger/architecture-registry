@@ -165,9 +165,6 @@ export default function FlowsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Информационные потоки</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>information_flow</Typography.Text> · Логическая связь между модулями (REQ-020); source_module_id ≠ target_module_id
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Код, модуль или протокол' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />

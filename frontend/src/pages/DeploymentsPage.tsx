@@ -176,9 +176,6 @@ export default function DeploymentsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Размещения модулей</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>module_deployment</Typography.Text> · Ровно один из server_id / cluster_id (XOR, REQ-010)
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Экземпляр, модуль, среда' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />

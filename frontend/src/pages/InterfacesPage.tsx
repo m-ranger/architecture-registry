@@ -227,9 +227,6 @@ export default function InterfacesPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Сетевые интерфейсы</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>network_interface</Typography.Text> · Ровно одна привязка: server_id XOR router_id XOR firewall_id XOR cluster_id (REQ-018); адрес кластера задаётся здесь же — роль в кластере INGRESS / NODE / MANAGEMENT (ТЗ §10.3)
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Имя, IP или MAC' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />

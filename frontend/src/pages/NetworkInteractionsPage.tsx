@@ -248,13 +248,6 @@ export default function NetworkInteractionsPage() {
         </Button>
       </Space>
 
-      <Alert
-        type='info'
-        showIcon
-        message='Адрес стороны определяется по реестру: размещение экземпляра модуля → сервер или кластер → network_interface'
-        description='Приоритет роли адреса: SERVICE → INGRESS → VIRTUAL → NODE → MANAGEMENT (совпадает с v15a/v16). Если экземпляр, размещение или адрес не заведены, строка остаётся в отчёте с пометкой — так видно, где не хватает данных (ТЗ §10.3, §17). Поток показывается только внутри одной среды: Test → Test, Prod → Prod.'
-      />
-
       {hiddenCount > 0 ? (
         <Alert
           type='warning'

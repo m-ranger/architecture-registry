@@ -137,9 +137,6 @@ export default function ServersPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>Серверы</Typography.Title>
-          <Typography.Text type='secondary'>
-            Сущность <Typography.Text code>server</Typography.Text> · Физический или виртуальный хост (REQ-011)
-          </Typography.Text>
         </div>
         <Space>
           <Input allowClear prefix={<SearchOutlined />} placeholder='Имя сервера' value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
