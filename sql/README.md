@@ -6,13 +6,48 @@ volume (`pg_data`).
 
 | Файл | Назначение |
 |------|------------|
-| `01_ddl.sql` | физическая модель реестра v2.0: таблицы, индексы, CHECK-ограничения, триггеры `updated_at` |
+| `01_ddl.sql` | физическая модель реестра v2.0: таблицы, индексы, именованные CHECK-ограничения, триггеры `updated_at`; порядок колонок и имена объектов совпадают с рабочей базой |
 | `02_views.sql` | представления `V01`–`V16` (`CREATE OR REPLACE` — безопасно применять повторно) |
 | `03_seed_example.sql` | демонстрационные данные реестра (разделы 01–18) |
 | `04_audit_triggers.sql` | триггеры аудита `audit_log` (идемпотентны) |
 | `05_network_addresses.sql` | миграция модели сетевых адресов развертывания: адрес кластера в `network_interface`, удаление устаревшей таблицы (идемпотентна) |
 | `06_seed_addresses.sql` | демонстрационные сетевые адреса серверов и кластеров (идемпотентен) |
 | `07_object_types.sql` | тип объекта `INTERNAL`/`EXTERNAL`: авторитетные таблицы (`information_system`, `server`, `cluster`) и наследование типа потомками (идемпотентна) |
+
+## Схема пустой базы и рабочая база
+
+`01_ddl.sql` описывает **текущее** состояние таблиц: имена ограничений и порядок
+колонок совпадают с работающим реестром. Поэтому схема, собранная скриптами `01`–`07`
+на пустом volume, равна схеме рабочей базы — кроме таблиц модуля схем
+(`architecture_diagram`, `architecture_diagram_element`,
+`architecture_diagram_relationship`, `diagram_version`): их создаёт сам модуль из
+`architecture-diagrams/server/schema.sql` (`server/migrate.js` при старте).
+
+Проверка «чистая база против рабочей» (образ собирается из `sql/Dockerfile`, поэтому в
+него попадают только `01`–`07`; рабочая база и её volume не затрагиваются):
+
+```bash
+docker build -t registry-db-check ./sql
+docker run -d --name ddl-check -e POSTGRES_DB=architecture_registry \
+  -e POSTGRES_USER=registry_admin -e POSTGRES_PASSWORD=registry_pass \
+  -v ddl_check_pg:/var/lib/postgresql/data registry-db-check
+# дождаться окончания initdb (в логах — "ready for start up"), затем сравнить дампы:
+docker exec ddl-check        pg_dump -U registry_admin -d architecture_registry \
+  --schema-only --no-owner --no-privileges --no-comments > fresh.sql
+docker exec arch-registry-db pg_dump -U registry_admin -d architecture_registry \
+  --schema-only --no-owner --no-privileges --no-comments > live.sql
+diff fresh.sql live.sql     # ожидается: только объекты модуля схем
+docker rm -f ddl-check; docker volume rm ddl_check_pg
+```
+
+Если различие шире, `01_ddl.sql` разошёлся с рабочей базой и файл нужно
+актуализировать. Именно так был найден отставший триггер
+`trg_touch_cluster_network_address`: таблица `cluster_network_address` снята миграцией
+`05`, а `01_ddl.sql` продолжал обращаться к ней — на пустом volume initdb падал и
+скрипты `02`–`07` не применялись. Тогда же CHECK по `object_type` объявлены явно
+(`chk_<таблица>_object_type`, как в `07_object_types.sql`): при безымянном CHECK
+PostgreSQL даёт автоимя `<таблица>_object_type_check`, и на свежей базе появлялся
+второй, дублирующий CHECK.
 
 ## Модель сетевых адресов развертывания
 
@@ -82,6 +117,10 @@ volume (`pg_data`).
   «Только внутренние»).
 
 ## Миграция существующей базы
+
+`01_ddl.sql` — только для пустого volume: `CREATE TABLE` идут без `IF NOT EXISTS`,
+поэтому на существующей базе этот файл **не применяется**; изменения оформляются
+отдельным идемпотентным скриптом (`05`–`07`), который можно запускать повторно.
 
 Если база уже создана (volume `pg_data` существует и скрипты `initdb` отработали
 ранее), изменения применяются к работающему контейнеру. Порядок важен: миграция

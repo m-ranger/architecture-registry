@@ -1,10 +1,14 @@
 -- ============================================================================
 -- Единый реестр архитектуры ИС — физическая модель PostgreSQL v2.0
--- Дата: 03.10.2026
+-- Дата: 03.10.2026 (актуализировано 11.10.2026)
 -- Принципы v2.0:
 --   information_flow только на уровне application_module (без instance)
 --   technical_flow / NetworkRoute отсутствуют
 --   router и firewall — объекты инфраструктуры через network_interface
+-- Колонки объявлены в том же порядке, что и в работающей базе (объекты
+-- object_type добавлены миграцией 07 последними), а CHECK-ограничения названы
+-- явно (chk_<таблица>_object_type) — так схема, собранная из этих файлов на
+-- пустом volume, совпадает со схемой действующего реестра.
 -- ============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto"; -- для gen_random_uuid()
@@ -19,14 +23,14 @@ CREATE TABLE information_system (
     description text            NULL,
     status      varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
     owner       varchar(255)    NULL,
-    -- Тип объекта (миграция 07): INTERNAL — собственная система организации,
-    -- EXTERNAL — внешняя система (подрядчик, партнёр, внешний сервис).
-    object_type varchar(20)     NOT NULL DEFAULT 'INTERNAL'
-        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     created_at  timestamptz     NOT NULL DEFAULT now(),
     created_by  varchar(255)    NOT NULL,
     updated_at  timestamptz     NOT NULL DEFAULT now(),
     updated_by  varchar(255)    NOT NULL,
+    -- Тип объекта (миграция 07): INTERNAL — собственная система организации,
+    -- EXTERNAL — внешняя система (подрядчик, партнёр, внешний сервис).
+    object_type varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CONSTRAINT chk_information_system_object_type CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     CONSTRAINT uq_information_system_code UNIQUE (code)
 );
 
@@ -42,13 +46,13 @@ CREATE TABLE application_module (
     module_type             varchar(50)     NULL CHECK (module_type IN ('FRONTEND','BACKEND','API','INTEGRATION','DATABASE','BATCH','ADAPTER')),
     version                 varchar(100)    NULL,
     status                  varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
-    -- Тип объекта наследуется от ИС (правила — sql/07_object_types.sql).
-    object_type             varchar(20)     NOT NULL DEFAULT 'INTERNAL'
-        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     created_at              timestamptz     NOT NULL DEFAULT now(),
     created_by              varchar(255)    NOT NULL,
     updated_at              timestamptz     NOT NULL DEFAULT now(),
     updated_by              varchar(255)    NOT NULL,
+    -- Тип объекта наследуется от ИС (правила — sql/07_object_types.sql).
+    object_type             varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CONSTRAINT chk_application_module_object_type CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     CONSTRAINT uq_application_module_is_code UNIQUE (information_system_id, code)
 );
 
@@ -88,20 +92,20 @@ CREATE INDEX ix_module_instance_environment_id ON module_instance(environment_id
 
 -- --------------------------------------------------------------------------
 -- 05. server — IP хранятся в network_interface (multi-homing);
---     адреса кластеров — в cluster_network_address (набор адресов, п. 12.1)
+--     адреса кластеров — тоже network_interface (владелец cluster_id)
 -- --------------------------------------------------------------------------
 CREATE TABLE server (
     id          uuid            PRIMARY KEY DEFAULT gen_random_uuid(),
     name        varchar(255)    NOT NULL,
     server_type varchar(50)     NULL,
-    -- Тип объекта (миграция 07): INTERNAL — собственный сервер,
-    -- EXTERNAL — внешний (подрядчик, партнёр, внешняя площадка).
-    object_type varchar(20)     NOT NULL DEFAULT 'INTERNAL'
-        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     status      varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
     description text            NULL,
     created_at  timestamptz     NOT NULL DEFAULT now(),
     updated_at  timestamptz     NOT NULL DEFAULT now(),
+    -- Тип объекта (миграция 07): INTERNAL — собственный сервер,
+    -- EXTERNAL — внешний (подрядчик, партнёр, внешняя площадка).
+    object_type varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CONSTRAINT chk_server_object_type CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     CONSTRAINT uq_server_name UNIQUE (name)
 );
 
@@ -112,16 +116,16 @@ CREATE TABLE cluster (
     id                  uuid            PRIMARY KEY DEFAULT gen_random_uuid(),
     name                varchar(255)    NOT NULL,
     cluster_type        varchar(50)     NOT NULL,
-    -- Тип объекта (миграция 07): INTERNAL — собственный кластер,
-    -- EXTERNAL — внешний (управляемый сервис, площадка подрядчика).
-    object_type         varchar(20)     NOT NULL DEFAULT 'INTERNAL'
-        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     version             varchar(100)    NULL,
     management_address  varchar(255)    NULL,
     status              varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
     description         text            NULL,
     created_at          timestamptz     NOT NULL DEFAULT now(),
     updated_at          timestamptz     NOT NULL DEFAULT now(),
+    -- Тип объекта (миграция 07): INTERNAL — собственный кластер,
+    -- EXTERNAL — внешний (управляемый сервис, площадка подрядчика).
+    object_type         varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CONSTRAINT chk_cluster_object_type CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     CONSTRAINT uq_cluster_name UNIQUE (name)
 );
 
@@ -135,14 +139,14 @@ CREATE TABLE module_deployment (
     cluster_id          uuid            NULL REFERENCES cluster(id) ON DELETE RESTRICT,
     deployment_role     varchar(50)     NULL CHECK (deployment_role IN ('PRIMARY','SECONDARY','REPLICA','ACTIVE','PASSIVE','SERVICE')),
     deployment_state    varchar(30)     NOT NULL CHECK (deployment_state IN ('ACTIVE','STANDBY','RETIRED')),
-    -- Тип объекта наследуется от цели размещения: сервера или кластера
-    -- (правила — sql/07_object_types.sql).
-    object_type         varchar(20)     NOT NULL DEFAULT 'INTERNAL'
-        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     valid_from          timestamptz     NULL,
     valid_to            timestamptz     NULL,
     created_at          timestamptz     NOT NULL DEFAULT now(),
     updated_at          timestamptz     NOT NULL DEFAULT now(),
+    -- Тип объекта наследуется от цели размещения: сервера или кластера
+    -- (правила — sql/07_object_types.sql).
+    object_type         varchar(20)     NOT NULL DEFAULT 'INTERNAL'
+        CONSTRAINT chk_module_deployment_object_type CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     CONSTRAINT chk_module_deployment_xor CHECK (
         (server_id IS NOT NULL AND cluster_id IS NULL) OR
         (server_id IS NULL AND cluster_id IS NOT NULL)
@@ -247,13 +251,9 @@ CREATE TABLE network_interface (
     server_id           uuid            NULL REFERENCES server(id) ON DELETE RESTRICT,
     router_id           uuid            NULL REFERENCES router(id) ON DELETE RESTRICT,
     firewall_id         uuid            NULL REFERENCES firewall(id) ON DELETE RESTRICT,
-    -- Адрес кластера: роль адреса в кластере задаёт interface_role.
-    cluster_id          uuid            NULL REFERENCES cluster(id) ON DELETE RESTRICT,
     -- Сегмент не обязателен: адрес развертывания может быть заведён до
     -- описания контура (сегмент уточняет зону и подсеть).
     network_segment_id  uuid            NULL REFERENCES network_segment(id) ON DELETE RESTRICT,
-    -- Среда адреса: NULL — адрес действует во всех средах узла размещения.
-    environment_id      uuid            NULL REFERENCES environment(id) ON DELETE RESTRICT,
     name                varchar(255)    NOT NULL,
     ip_address          inet            NULL,
     mac_address         varchar(32)     NULL,
@@ -261,11 +261,15 @@ CREATE TABLE network_interface (
     -- Роль адреса в кластере: INGRESS (точка входа), NODE (узел кластера),
     -- MANAGEMENT (управление) — значения ограничены CHECK ниже.
     interface_role      varchar(50)     NULL,
+    status              varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
+    -- Среда адреса: NULL — адрес действует во всех средах узла размещения.
+    environment_id      uuid            NULL REFERENCES environment(id) ON DELETE RESTRICT,
+    -- Адрес кластера: роль адреса в кластере задаёт interface_role.
+    cluster_id          uuid            NULL REFERENCES cluster(id) ON DELETE RESTRICT,
     -- Тип объекта наследуется от владельца адреса: сервера или кластера;
     -- у адреса маршрутизатора и МЭ — INTERNAL (правила — sql/07_object_types.sql).
     object_type         varchar(20)     NOT NULL DEFAULT 'INTERNAL'
-        CHECK (object_type IN ('INTERNAL','EXTERNAL')),
-    status              varchar(30)     NOT NULL CHECK (status IN ('PLANNED','ACTIVE','RETIRED')),
+        CONSTRAINT chk_network_interface_object_type CHECK (object_type IN ('INTERNAL','EXTERNAL')),
     CONSTRAINT chk_network_interface_owner CHECK (
         (CASE WHEN server_id IS NOT NULL THEN 1 ELSE 0 END +
          CASE WHEN router_id IS NOT NULL THEN 1 ELSE 0 END +
@@ -400,8 +404,6 @@ DROP TRIGGER IF EXISTS trg_touch_server ON server;
 CREATE TRIGGER trg_touch_server BEFORE UPDATE ON server FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
 DROP TRIGGER IF EXISTS trg_touch_cluster ON cluster;
 CREATE TRIGGER trg_touch_cluster BEFORE UPDATE ON cluster FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
-DROP TRIGGER IF EXISTS trg_touch_cluster_network_address ON cluster_network_address;
-CREATE TRIGGER trg_touch_cluster_network_address BEFORE UPDATE ON cluster_network_address FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
 DROP TRIGGER IF EXISTS trg_touch_information_flow ON information_flow;
 CREATE TRIGGER trg_touch_information_flow BEFORE UPDATE ON information_flow FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
 DROP TRIGGER IF EXISTS trg_touch_project ON project;
